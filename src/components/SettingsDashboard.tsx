@@ -526,7 +526,7 @@ export default function SettingsDashboard({
               <Lock className="w-6 h-6 text-white" />
             </div>
             <h3 className="text-lg font-black">جهاز إدخال الهوية للمشرف</h3>
-            <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">Admin Access Only · Restricted</p>
+            <p className="text-[10px] text-slate-300 mt-0.5 uppercase tracking-wider">Default Master Pass: 20042007</p>
           </div>
 
           <form onSubmit={handleAuthSubmit} className="p-6 space-y-4" id="lockscreen-form">
