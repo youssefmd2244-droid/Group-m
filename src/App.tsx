@@ -49,13 +49,13 @@ const DEFAULT_CONFIG: AppConfig = {
     publicTableTitle: 'بيانات التسجيل والسجلات النشطة'
   },
   github: {
-    token: '',
-    owner: '',
-    repo: '',
+    token: (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GITHUB_TOKEN) || '',
+    owner: 'youssefmd2244-droid',
+    repo: 'المجموعة-م',
     branch: 'main',
-    dataPath: 'data.json',
+    dataPath: 'أصول/data.json',
     configPath: 'config.json',
-    isEnabled: false,
+    isEnabled: !!(typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GITHUB_TOKEN),
   }
 };
 
@@ -107,7 +107,25 @@ export default function App() {
     // C. Dynamically update document layout properties
     document.title = loadedConfig.websiteTitle || 'Group m';
 
-    // D. Pull from GitHub on load.
+    // D. Inject env token so Vercel VITE_GITHUB_TOKEN always takes effect
+    const envToken = (import.meta as any).env?.VITE_GITHUB_TOKEN || '';
+    if (envToken && (!loadedConfig.github?.token)) {
+      loadedConfig = {
+        ...loadedConfig,
+        github: {
+          ...loadedConfig.github,
+          token: envToken,
+          owner: loadedConfig.github?.owner || 'youssefmd2244-droid',
+          repo: loadedConfig.github?.repo || 'المجموعة-م',
+          branch: loadedConfig.github?.branch || 'main',
+          dataPath: loadedConfig.github?.dataPath || 'أصول/data.json',
+          isEnabled: true,
+        }
+      };
+      setAppConfig(loadedConfig);
+    }
+
+    // E. Pull from GitHub on load.
     //    If admin session is active → fetch users too (isAdminPull=true).
     //    If visitor → only fetch config (isAdminPull=false, excludeUsers=true).
     if (loadedConfig.github && loadedConfig.github.isEnabled && loadedConfig.github.token) {
