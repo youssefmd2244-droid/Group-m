@@ -101,7 +101,9 @@ export default function SettingsDashboard({
   const [themeColors, setThemeColors] = useState<ThemeConfig>(appConfig.theme);
   const [themeMessage, setThemeMessage] = useState('');
 
-  const [ghToken, setGhToken] = useState(appConfig.github.token);
+  const [ghToken, setGhToken] = useState(
+    appConfig.github.token || (import.meta.env.VITE_GITHUB_TOKEN as string) || ''
+  );
   const [ghOwner, setGhOwner] = useState(appConfig.github.owner);
   const [ghRepo, setGhRepo] = useState(appConfig.github.repo);
   const [ghBranch, setGhBranch] = useState(appConfig.github.branch || 'main');
@@ -123,7 +125,7 @@ export default function SettingsDashboard({
     setThemeColors(appConfig.theme);
     setFieldsSchemaList(appConfig.fieldsSchema || []);
     setLocalizationMap(appConfig.localizationOverrides || {});
-    setGhToken(appConfig.github.token);
+    setGhToken(appConfig.github.token || (import.meta.env.VITE_GITHUB_TOKEN as string) || '');
     setGhOwner(appConfig.github.owner);
     setGhRepo(appConfig.github.repo);
     setGhBranch(appConfig.github.branch || 'main');
