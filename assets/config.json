@@ -1,0 +1,27 @@
+{
+  "site_title": "Group m",
+  "enable_title_animation": true,
+  "floating_buttons": [
+    {
+      "id": "whatsapp_yusuf",
+      "type": "whatsapp",
+      "label": "واتساب م. يوسف",
+      "link": "https://wa.me/201094555299",
+      "icon": "fa-whatsapp",
+      "is_floating": true
+    },
+    {
+      "id": "call_yusuf",
+      "type": "phone",
+      "label": "اتصال م. يوسف",
+      "link": "tel:01094555299",
+      "icon": "fa-phone",
+      "is_floating": true
+    }
+  ],
+  "form_fields_validation": {
+    "full_name": { "required": true },
+    "phone_number": { "required": true },
+    "birth_certificate": { "required": false }
+  }
+}
