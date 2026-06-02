@@ -103,8 +103,8 @@ export default function SettingsDashboard({
   const [ghToken, setGhToken] = useState(
     appConfig.github.token || (import.meta.env.VITE_GITHUB_TOKEN as string) || ''
   );
-  const [ghOwner, setGhOwner] = useState(appConfig.github.owner);
-  const [ghRepo, setGhRepo] = useState(appConfig.github.repo);
+  const [ghOwner, setGhOwner] = useState(appConfig.github.owner || 'youssefmd2244-droid');
+  const [ghRepo, setGhRepo] = useState(appConfig.github.repo || 'Group-m');
   const [ghBranch, setGhBranch] = useState(appConfig.github.branch || 'main');
   const [ghDataPath, setGhDataPath] = useState(appConfig.github.dataPath || 'data.json');
   const [ghConfigPath, setGhConfigPath] = useState(appConfig.github.configPath || 'config.json');
@@ -132,8 +132,8 @@ export default function SettingsDashboard({
     setFieldsSchemaList(appConfig.fieldsSchema || []);
     setLocalizationMap(appConfig.localizationOverrides || {});
     setGhToken(appConfig.github.token || (import.meta.env.VITE_GITHUB_TOKEN as string) || '');
-    setGhOwner(appConfig.github.owner);
-    setGhRepo(appConfig.github.repo);
+    setGhOwner(appConfig.github.owner || 'youssefmd2244-droid');
+    setGhRepo(appConfig.github.repo || 'Group-m');
     setGhBranch(appConfig.github.branch || 'main');
     setGhDataPath(appConfig.github.dataPath || 'data.json');
     setGhConfigPath(appConfig.github.configPath || 'config.json');
@@ -156,8 +156,8 @@ export default function SettingsDashboard({
       }
       setAuthError('');
       if (onAdminLogin) onAdminLogin();
-      // Immediate reload — clears any stale state causing white screen
-      window.location.reload();
+      // Open dashboard directly without any reload/redirect
+      setActiveTab('github');
     } else {
       setAuthError('الرمز السري المكتوب خاطئ! الرجاء إعادة المحاولة.');
     }
@@ -171,12 +171,14 @@ export default function SettingsDashboard({
   };
 
   // ── GITHUB DIRECT SYNC ENGINE ─────────────────────────────────────────────
-  const REPO_OWNER = 'youssefmd2244-droid';
-  const REPO_NAME  = 'Group-m';
-  const DATA_PATH  = ghDataPath || 'data.json';
-  // Multi-source token resolution: env var → state → localStorage fallback
+  // Hardcoded repo defaults — never empty
+  const REPO_OWNER = ghOwner?.trim() || 'youssefmd2244-droid';
+  const REPO_NAME  = ghRepo?.trim()  || 'Group-m';
+  const DATA_PATH  = ghDataPath?.trim() || 'data.json';
+  const BRANCH     = ghBranch?.trim()   || 'main';
+  // Multi-source token resolution — priority: state → env → localStorage
   const GH_TOKEN: string = (
-    ghToken ||
+    ghToken?.trim() ||
     (import.meta as any).env?.VITE_GITHUB_TOKEN ||
     (typeof process !== 'undefined' ? (process as any).env?.VITE_GITHUB_TOKEN : '') ||
     localStorage.getItem('gh_token_fallback') ||
@@ -187,7 +189,7 @@ export default function SettingsDashboard({
   const fetchUsersFromGithub = async () => {
     if (!GH_TOKEN) return;
     try {
-      const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}?ref=${ghBranch || 'main'}`;
+      const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}?ref=${BRANCH}`;
       const res = await fetch(url, {
         headers: {
           Authorization: `Bearer ${GH_TOKEN}`,
@@ -213,7 +215,7 @@ export default function SettingsDashboard({
     if (!GH_TOKEN) return;
     try {
       const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}`;
-      const getRes = await fetch(`${url}?ref=${ghBranch || 'main'}`, {
+      const getRes = await fetch(`${url}?ref=${BRANCH}`, {
         headers: {
           Authorization: `Bearer ${GH_TOKEN}`,
           Accept: 'application/vnd.github+json',
@@ -226,7 +228,7 @@ export default function SettingsDashboard({
       const payload: Record<string, string> = {
         message: `chore: sync ${newUsers.length} records [auto]`,
         content: btoa(unescape(encodeURIComponent(JSON.stringify(newUsers, null, 2)))),
-        branch: ghBranch || 'main',
+        branch: BRANCH,
       };
       if (currentSha) payload.sha = currentSha;
 
@@ -540,7 +542,7 @@ export default function SettingsDashboard({
     // to avoid a separate config.json file. Merge with existing users payload.
     try {
       const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}`;
-      const getRes = await fetch(`${url}?ref=${ghBranch || 'main'}`, {
+      const getRes = await fetch(`${url}?ref=${BRANCH}`, {
         headers: {
           Authorization: `Bearer ${GH_TOKEN}`,
           Accept: 'application/vnd.github+json',
@@ -579,7 +581,7 @@ export default function SettingsDashboard({
             github: updatedConfig.github,
           }
         }, null, 2)))),
-        branch: ghBranch || 'main',
+        branch: BRANCH,
       };
       if (currentSha) payload.sha = currentSha;
 
