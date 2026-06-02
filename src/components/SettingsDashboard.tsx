@@ -3,7 +3,8 @@ import {
   Settings, Users, Palette, Github, FileDown, Eye, Edit2, Trash2, KeyRound, 
   Globe, PhoneCall, Save, RefreshCw, LogOut, Check, Search, X, 
   ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Plus, Sparkles, Printer, Lock,
-  Sliders, Languages, PlusCircle, CheckSquare, Square, Send, Link, ToggleLeft, ToggleRight
+  Sliders, Languages, PlusCircle, CheckSquare, Square, Send, Link, ToggleLeft, ToggleRight,
+  Monitor, Image, Zap
 } from 'lucide-react';
 import { UserRecord, ContactNumber, ThemeConfig, AppConfig, GitHubConfig, FormFieldSchema, CustomFloatingButton } from '../types';
 import { exportProfileAsPNG, printUserProfile, exportProfileAsHTML2Canvas } from '../utils/exportProfile';
@@ -33,27 +34,25 @@ export default function SettingsDashboard({
   onAdminLogout,
 }: SettingsDashboardProps) {
   // Authentication Gateway State
-  // Restore from sessionStorage so refresh doesn't re-lock the admin panel
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return sessionStorage.getItem('group_m_admin_session') === 'active';
   });
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
 
-  // Dashboard Tabs layout matching core goals
-  const [activeTab, setActiveTab] = useState<'inbox' | 'database' | 'schema' | 'localization' | 'contacts' | 'theme' | 'github' | 'security'>('inbox');
+  // Dashboard Tabs
+  const [activeTab, setActiveTab] = useState<'inbox' | 'database' | 'schema' | 'localization' | 'contacts' | 'theme' | 'site' | 'github' | 'security'>('inbox');
 
   // Search & Pagination in Inbox
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
 
-  // Database Console (separate search/filter state)
+  // Database Console
   const [dbSearchQuery, setDbSearchQuery] = useState('');
   const [dbCurrentPage, setDbCurrentPage] = useState(1);
   const [dbItemsPerPage] = useState(15);
   const [dbGenderFilter, setDbGenderFilter] = useState<'all' | 'Male' | 'Female'>('all');
-
 
   // Focus Modal views
   const [focusedUser, setFocusedUser] = useState<UserRecord | null>(null);
@@ -90,7 +89,7 @@ export default function SettingsDashboard({
   const [contactType, setContactType] = useState<'whatsapp' | 'call'>('whatsapp');
   const [contactMessage, setContactMessage] = useState('');
 
-  // Custom Floating Buttons state variables
+  // Custom Floating Buttons
   const [customButtonsList, setCustomButtonsList] = useState<CustomFloatingButton[]>(appConfig.customFloatingButtons || []);
   const [newCustomLabel, setNewCustomLabel] = useState('');
   const [newCustomUrl, setNewCustomUrl] = useState('');
@@ -116,9 +115,16 @@ export default function SettingsDashboard({
   const [logoBase64, setLogoBase64] = useState(appConfig.logoBase64 || '');
   const [enableTitleAnimation, setEnableTitleAnimation] = useState(appConfig.enableTitleAnimation || false);
 
+  // ── SITE CUSTOMIZATION TAB STATE ─────────────────────────────────────────
+  const [siteTitle, setSiteTitle] = useState(appConfig.websiteTitle || 'Group M');
+  const [siteFaviconBase64, setSiteFaviconBase64] = useState(appConfig.logoBase64 || '');
+  const [enableIconGlowSpin, setEnableIconGlowSpin] = useState(appConfig.enableTitleAnimation || false);
+  const [siteCustomMessage, setSiteCustomMessage] = useState('');
+
   // Sync state modifications when props reload
   useEffect(() => {
     setWebsiteTitle(appConfig.websiteTitle);
+    setSiteTitle(appConfig.websiteTitle || 'Group M');
     setWhatsappList(appConfig.whatsappNumbers || []);
     setCallList(appConfig.callNumbers || []);
     setCustomButtonsList(appConfig.customFloatingButtons || []);
@@ -133,7 +139,9 @@ export default function SettingsDashboard({
     setGhConfigPath(appConfig.github.configPath || 'config.json');
     setGhEnabled(appConfig.github.isEnabled);
     setLogoBase64(appConfig.logoBase64 || '');
+    setSiteFaviconBase64(appConfig.logoBase64 || '');
     setEnableTitleAnimation(appConfig.enableTitleAnimation || false);
+    setEnableIconGlowSpin(appConfig.enableTitleAnimation || false);
   }, [appConfig]);
 
   const handleAuthSubmit = (e: React.FormEvent) => {
@@ -141,22 +149,13 @@ export default function SettingsDashboard({
     const correctPassword = appConfig.masterPasswordHash || '20042007';
     if (passwordInput === correctPassword) {
       setIsAuthenticated(true);
-
-      // Persist admin session for this browser tab (cleared automatically on tab/browser close)
       sessionStorage.setItem('group_m_admin_session', 'active');
-
-      // Permanently flag this machine as authorized for background notifications
       localStorage.setItem('isAdminNotificationDevice', 'true');
-
-      // Ask prompt permission for browser Notifications
       if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
         Notification.requestPermission();
       }
-
       setAuthError('');
-      if (onAdminLogin) {
-        onAdminLogin();
-      }
+      if (onAdminLogin) onAdminLogin();
     } else {
       setAuthError('الرمز السري المكتوب خاطئ! الرجاء إعادة المحاولة.');
     }
@@ -166,13 +165,10 @@ export default function SettingsDashboard({
     setIsAuthenticated(false);
     setPasswordInput('');
     sessionStorage.removeItem('group_m_admin_session');
-    if (onAdminLogout) {
-      onAdminLogout();
-    }
+    if (onAdminLogout) onAdminLogout();
   };
 
-  // ── GITHUB DIRECT SYNC ENGINE ───────────────────────────────────────────────
-  // Hard-wired repo: youssefmd2244-droid/Group-m  |  token: VITE_GITHUB_TOKEN
+  // ── GITHUB DIRECT SYNC ENGINE ─────────────────────────────────────────────
   const REPO_OWNER = 'youssefmd2244-droid';
   const REPO_NAME  = 'Group-m';
   const DATA_PATH  = ghDataPath || 'data.json';
@@ -195,7 +191,6 @@ export default function SettingsDashboard({
       const decoded = decodeURIComponent(escape(atob(json.content.replace(/\n/g, ''))));
       const parsed: UserRecord[] = JSON.parse(decoded);
       if (Array.isArray(parsed)) {
-        // Optimistic: update UI immediately, then persist locally
         onUpdateUsers(parsed);
         localStorage.setItem('group_m_users', JSON.stringify(parsed));
       }
@@ -209,7 +204,6 @@ export default function SettingsDashboard({
     if (!GH_TOKEN) return;
     try {
       const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}`;
-      // 1. Get current SHA
       const getRes = await fetch(`${url}?ref=${ghBranch || 'main'}`, {
         headers: {
           Authorization: `Bearer ${GH_TOKEN}`,
@@ -220,7 +214,6 @@ export default function SettingsDashboard({
       const shaData = getRes.ok ? await getRes.json() : null;
       const currentSha: string | undefined = shaData?.sha;
 
-      // 2. Push updated content with SHA to avoid conflicts
       const payload: Record<string, string> = {
         message: `chore: sync ${newUsers.length} records [auto]`,
         content: btoa(unescape(encodeURIComponent(JSON.stringify(newUsers, null, 2)))),
@@ -247,8 +240,8 @@ export default function SettingsDashboard({
   const handleDeleteUserDirect = (id: string, name: string) => {
     if (window.confirm(`هل أنت متأكد من مسح استمارة الطالب "${name}" نهائياً من الشبكة؟`)) {
       const updated = users.filter((u) => u.id !== id);
-      onUpdateUsers(updated); // instant UI
-      pushUsersToGithub(updated); // background sync
+      onUpdateUsers(updated);
+      pushUsersToGithub(updated);
     }
   };
 
@@ -259,7 +252,7 @@ export default function SettingsDashboard({
     }
   }, [isAuthenticated]);
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
 
   // 1. INBOX DATAGRID & MUTATIONS
   const filteredUsers = users.filter((u) => {
@@ -280,7 +273,7 @@ export default function SettingsDashboard({
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentUsers = filteredUsers.slice(indexOfFirstItem, indexOfLastItem);
 
-  const handleDeleteUser = (id: string, name: string) => { // used by inbox tab
+  const handleDeleteUser = (id: string, name: string) => {
     if (window.confirm(`هل أنت متأكد من مسح استمارة الطالب "${name}" نهائياً من الشبكة؟`)) {
       const updated = users.filter((u) => u.id !== id);
       onUpdateUsers(updated);
@@ -322,10 +315,7 @@ export default function SettingsDashboard({
 
     const updatedList = [...fieldsSchemaList, newField];
     setFieldsSchemaList(updatedList);
-    
-    const updatedConfig = { ...appConfig, fieldsSchema: updatedList };
-    onUpdateConfig(updatedConfig);
-
+    onUpdateConfig({ ...appConfig, fieldsSchema: updatedList });
     setNewFieldName('');
     setNewFieldLabelAr('');
     setNewFieldLabelEn('');
@@ -367,10 +357,7 @@ export default function SettingsDashboard({
   ];
 
   const handleSaveLocalizationOverrides = () => {
-    const updatedConfig = {
-      ...appConfig,
-      localizationOverrides: localizationMap
-    };
+    const updatedConfig = { ...appConfig, localizationOverrides: localizationMap };
     onUpdateConfig(updatedConfig);
     setLocSuccess('تمت كتابة الأقسام والعبارات الجديدة وحفظها بنجاح!');
     setTimeout(() => setLocSuccess(''), 3000);
@@ -439,16 +426,9 @@ export default function SettingsDashboard({
       icon: newCustomIcon,
       isFloating: newCustomIsFloating,
     };
-
     const updatedList = [...customButtonsList, newBtn];
     setCustomButtonsList(updatedList);
-
-    const updatedConfig = {
-      ...appConfig,
-      customFloatingButtons: updatedList,
-    };
-    onUpdateConfig(updatedConfig);
-
+    onUpdateConfig({ ...appConfig, customFloatingButtons: updatedList });
     setNewCustomLabel('');
     setNewCustomUrl('');
     setNewCustomIcon('Send');
@@ -460,27 +440,15 @@ export default function SettingsDashboard({
   const deleteCustomFloatingButton = (id: string) => {
     const updatedList = customButtonsList.filter(b => b.id !== id);
     setCustomButtonsList(updatedList);
-
-    const updatedConfig = {
-      ...appConfig,
-      customFloatingButtons: updatedList,
-    };
-    onUpdateConfig(updatedConfig);
+    onUpdateConfig({ ...appConfig, customFloatingButtons: updatedList });
     setContactMessage('تم حذف الزر المخصص بنجاح!');
     setTimeout(() => setContactMessage(''), 3000);
   };
 
   const toggleCustomFloatingState = (id: string) => {
-    const updatedList = customButtonsList.map(b => 
-      b.id === id ? { ...b, isFloating: !b.isFloating } : b
-    );
+    const updatedList = customButtonsList.map(b => b.id === id ? { ...b, isFloating: !b.isFloating } : b);
     setCustomButtonsList(updatedList);
-
-    const updatedConfig = {
-      ...appConfig,
-      customFloatingButtons: updatedList,
-    };
-    onUpdateConfig(updatedConfig);
+    onUpdateConfig({ ...appConfig, customFloatingButtons: updatedList });
   };
 
   const startEditCustomButton = (btn: CustomFloatingButton) => {
@@ -496,20 +464,14 @@ export default function SettingsDashboard({
       setContactMessage('يرجى ملاء البيانات بالكامل للزر المخصص!');
       return;
     }
-    const updatedList = customButtonsList.map(b => 
-      b.id === editingCustomId 
-        ? { ...b, label: newCustomLabel.trim(), url: newCustomUrl.trim(), icon: newCustomIcon, isFloating: newCustomIsFloating } 
+    const updatedList = customButtonsList.map(b =>
+      b.id === editingCustomId
+        ? { ...b, label: newCustomLabel.trim(), url: newCustomUrl.trim(), icon: newCustomIcon, isFloating: newCustomIsFloating }
         : b
     );
     setCustomButtonsList(updatedList);
     setEditingCustomId(null);
-
-    const updatedConfig = {
-      ...appConfig,
-      customFloatingButtons: updatedList,
-    };
-    onUpdateConfig(updatedConfig);
-
+    onUpdateConfig({ ...appConfig, customFloatingButtons: updatedList });
     setNewCustomLabel('');
     setNewCustomUrl('');
     setNewCustomIcon('Send');
@@ -546,7 +508,6 @@ export default function SettingsDashboard({
       borderRadius: preset.borderRadius,
       isDarkMode: preset.isDarkMode || false
     };
-
     setThemeColors(updatedTheme);
     onUpdateConfig({ ...appConfig, theme: updatedTheme });
     setThemeMessage('تم تطبيق تناسق الألوان وسِلسِلة القوالب فورياً وعبر كافة الشاشات!');
@@ -557,6 +518,53 @@ export default function SettingsDashboard({
     const updatedTheme = { ...themeColors, [key]: val };
     setThemeColors(updatedTheme);
     onUpdateConfig({ ...appConfig, theme: updatedTheme });
+  };
+
+  // 5B. SITE CUSTOMIZATION HANDLERS
+  const handleSaveSiteCustomization = () => {
+    // Optimistic UI: immediate update + background GitHub push
+    const updatedConfig: AppConfig = {
+      ...appConfig,
+      websiteTitle: siteTitle.trim() || appConfig.websiteTitle,
+      logoBase64: siteFaviconBase64,
+      enableTitleAnimation: enableIconGlowSpin,
+    };
+    onUpdateConfig(updatedConfig);
+
+    // Update browser title immediately
+    if (siteTitle.trim()) {
+      document.title = siteTitle.trim();
+    }
+
+    // Update favicon immediately if provided
+    if (siteFaviconBase64) {
+      const link: HTMLLinkElement = document.querySelector("link[rel*='icon']") || document.createElement('link');
+      link.type = 'image/x-icon';
+      link.rel = 'shortcut icon';
+      link.href = siteFaviconBase64;
+      document.head.appendChild(link);
+    }
+
+    setSiteCustomMessage('تم حفظ تخصيصات الموقع وتطبيقها فورياً على المتصفح!');
+    setTimeout(() => setSiteCustomMessage(''), 3500);
+  };
+
+  const handleFaviconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Lazy compress: if file > 200KB, warn. Otherwise read as base64
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setSiteFaviconBase64(base64);
+      // Optimistic immediate preview
+      const link: HTMLLinkElement = document.querySelector("link[rel*='icon']") || document.createElement('link');
+      link.type = 'image/x-icon';
+      link.rel = 'shortcut icon';
+      link.href = base64;
+      document.head.appendChild(link);
+    };
+    reader.readAsDataURL(file);
   };
 
   // 6. GITHUB REST PIPELINE HANDLERS
@@ -737,9 +745,7 @@ export default function SettingsDashboard({
           <nav className="w-full md:w-52 bg-white border-l border-slate-200 flex flex-row md:flex-col p-2 gap-1 overflow-x-auto md:overflow-x-visible shrink-0 select-none" id="admin-tabs">
             <button
               onClick={() => setActiveTab('inbox')}
-              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${
-                activeTab === 'inbox' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'inbox' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               style={activeTab === 'inbox' ? { backgroundColor: themeColors.primary } : {}}
               id="tab-inbox"
             >
@@ -749,9 +755,7 @@ export default function SettingsDashboard({
 
             <button
               onClick={() => setActiveTab('database')}
-              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${
-                activeTab === 'database' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'database' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               style={activeTab === 'database' ? { backgroundColor: '#0d9488' } : {}}
               id="tab-database"
             >
@@ -761,9 +765,7 @@ export default function SettingsDashboard({
 
             <button
               onClick={() => setActiveTab('schema')}
-              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${
-                activeTab === 'schema' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'schema' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               style={activeTab === 'schema' ? { backgroundColor: themeColors.primary } : {}}
               id="tab-schema"
             >
@@ -773,9 +775,7 @@ export default function SettingsDashboard({
 
             <button
               onClick={() => setActiveTab('localization')}
-              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${
-                activeTab === 'localization' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'localization' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               style={activeTab === 'localization' ? { backgroundColor: themeColors.primary } : {}}
               id="tab-localization"
             >
@@ -785,9 +785,7 @@ export default function SettingsDashboard({
 
             <button
               onClick={() => setActiveTab('contacts')}
-              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${
-                activeTab === 'contacts' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'contacts' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               style={activeTab === 'contacts' ? { backgroundColor: themeColors.primary } : {}}
               id="tab-contacts"
             >
@@ -797,9 +795,7 @@ export default function SettingsDashboard({
 
             <button
               onClick={() => setActiveTab('theme')}
-              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${
-                activeTab === 'theme' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'theme' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               style={activeTab === 'theme' ? { backgroundColor: themeColors.primary } : {}}
               id="tab-theme"
             >
@@ -807,11 +803,20 @@ export default function SettingsDashboard({
               <span>تخصيص الهوية البصرية</span>
             </button>
 
+            {/* ── NEW SITE CUSTOMIZATION TAB ── */}
+            <button
+              onClick={() => setActiveTab('site')}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'site' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
+              style={activeTab === 'site' ? { backgroundColor: '#7c3aed' } : {}}
+              id="tab-site"
+            >
+              <Monitor size={14} />
+              <span>مظهر الموقع (Site)</span>
+            </button>
+
             <button
               onClick={() => setActiveTab('github')}
-              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${
-                activeTab === 'github' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'github' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               style={activeTab === 'github' ? { backgroundColor: themeColors.primary } : {}}
               id="tab-github"
             >
@@ -821,9 +826,7 @@ export default function SettingsDashboard({
 
             <button
               onClick={() => setActiveTab('security')}
-              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${
-                activeTab === 'security' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2 justify-start px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 whitespace-nowrap cursor-pointer ${activeTab === 'security' ? 'text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               style={activeTab === 'security' ? { backgroundColor: themeColors.primary } : {}}
               id="tab-security"
             >
@@ -859,7 +862,6 @@ export default function SettingsDashboard({
                       onClick={() => exportToExcel(users)}
                       disabled={users.length === 0}
                       className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-indigo-100 transition cursor-pointer flex items-center gap-1 shrink-0"
-                      title="تصدير كجدول Excel"
                       id="export-excel-inbox-btn"
                     >
                       <FileDown size={13} />
@@ -870,7 +872,6 @@ export default function SettingsDashboard({
                       onClick={() => exportToWord(users)}
                       disabled={users.length === 0}
                       className="px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-blue-100 transition cursor-pointer flex items-center gap-1 shrink-0"
-                      title="تصدير كملف Word"
                       id="export-word-inbox-btn"
                     >
                       <FileDown size={13} />
@@ -940,7 +941,6 @@ export default function SettingsDashboard({
                                       <Eye size={12} />
                                     </button>
 
-                                    {/* Action dropdown button */}
                                     <div className="relative">
                                       <button
                                         onClick={() => setActiveExportDropdown(activeExportDropdown === u.id ? null : u.id)}
@@ -953,10 +953,7 @@ export default function SettingsDashboard({
                                       
                                       {activeExportDropdown === u.id && (
                                         <>
-                                          <div 
-                                            className="fixed inset-0 z-30" 
-                                            onClick={() => setActiveExportDropdown(null)} 
-                                          />
+                                          <div className="fixed inset-0 z-30" onClick={() => setActiveExportDropdown(null)} />
                                           <div className="absolute left-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-100 py-1.5 z-40 text-right font-sans divide-y divide-slate-50 animate-in fade-in slide-in-from-top-1 duration-100">
                                             <button
                                               onClick={() => {
@@ -1070,8 +1067,6 @@ export default function SettingsDashboard({
 
               return (
                 <div className="space-y-4 text-right" id="tab-database-workspace">
-                  
-                  {/* Console Header */}
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h3 className="text-base font-black text-slate-800 flex items-center gap-1.5">
@@ -1087,7 +1082,6 @@ export default function SettingsDashboard({
                     </div>
                   </div>
 
-                  {/* Stats Counter Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" id="db-stats-grid">
                     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-right">
                       <p className="text-2xl font-black text-slate-800">{users.length}</p>
@@ -1115,55 +1109,25 @@ export default function SettingsDashboard({
                     </div>
                   </div>
 
-                  {/* Export Toolbar */}
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3" id="db-export-toolbar">
                     <p className="text-[10px] font-black text-slate-500 mb-2">تصدير قاعدة البيانات الكاملة — All Formats Export:</p>
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => exportToCSV(users)}
-                        disabled={users.length === 0}
-                        className="px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-emerald-100 transition cursor-pointer flex items-center gap-1.5"
-                        id="db-export-csv-btn"
-                        title="تصدير كـ CSV"
-                      >
-                        <FileDown size={12} />
-                        CSV
+                      <button onClick={() => exportToCSV(users)} disabled={users.length === 0} className="px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-emerald-100 transition cursor-pointer flex items-center gap-1.5">
+                        <FileDown size={12} />CSV
                       </button>
-                      <button
-                        onClick={() => exportToExcel(users)}
-                        disabled={users.length === 0}
-                        className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-indigo-100 transition cursor-pointer flex items-center gap-1.5"
-                        id="db-export-excel-btn"
-                        title="تصدير كـ Excel"
-                      >
-                        <FileDown size={12} />
-                        Excel
+                      <button onClick={() => exportToExcel(users)} disabled={users.length === 0} className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-indigo-100 transition cursor-pointer flex items-center gap-1.5">
+                        <FileDown size={12} />Excel
                       </button>
-                      <button
-                        onClick={() => exportToWord(users)}
-                        disabled={users.length === 0}
-                        className="px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-blue-100 transition cursor-pointer flex items-center gap-1.5"
-                        id="db-export-word-btn"
-                        title="تصدير كـ Word"
-                      >
-                        <FileDown size={12} />
-                        Word
+                      <button onClick={() => exportToWord(users)} disabled={users.length === 0} className="px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-blue-100 transition cursor-pointer flex items-center gap-1.5">
+                        <FileDown size={12} />Word
                       </button>
-                      <button
-                        onClick={() => exportToImage(users, appConfig.websiteTitle)}
-                        disabled={users.length === 0}
-                        className="px-3 py-2 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-teal-100 transition cursor-pointer flex items-center gap-1.5"
-                        id="db-export-image-btn"
-                        title="تصدير كـ صورة HTML قابلة للطباعة"
-                      >
-                        <Printer size={12} />
-                        PDF / صورة
+                      <button onClick={() => exportToImage(users, appConfig.websiteTitle)} disabled={users.length === 0} className="px-3 py-2 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-teal-100 transition cursor-pointer flex items-center gap-1.5">
+                        <Printer size={12} />PDF / صورة
                       </button>
                     </div>
                     <p className="text-[9px] text-slate-400 mt-2">CSV: جدول نصي خام • Excel: جدول محسوب منسق • Word: ملف أرشيفي رسمي • PDF/صورة: تقرير مرئي قابل للطباعة</p>
                   </div>
 
-                  {/* Search & Filter Row */}
                   <div className="flex flex-wrap items-center gap-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-3" id="db-search-filter-row">
                     <div className="relative flex-1 min-w-48">
                       <Search className="absolute right-3 top-2 text-slate-400 w-4 h-4" />
@@ -1173,7 +1137,6 @@ export default function SettingsDashboard({
                         value={dbSearchQuery}
                         onChange={(e) => { setDbSearchQuery(e.target.value); setDbCurrentPage(1); }}
                         className="w-full pr-9 pl-3 py-1.5 border border-slate-200 outline-none rounded-xl text-xs focus:border-teal-500 bg-slate-50 text-slate-700 font-sans"
-                        id="db-search-input"
                       />
                     </div>
                     <select
@@ -1196,15 +1159,14 @@ export default function SettingsDashboard({
                     <span className="text-[10px] text-slate-400 mr-auto">نتائج: {dbFiltered.length} سجل</span>
                   </div>
 
-                  {/* Full Data Table */}
                   {dbFiltered.length === 0 ? (
-                    <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center text-slate-400 font-sans" id="db-empty">
+                    <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center text-slate-400 font-sans">
                       <Users size={40} className="mx-auto text-slate-300 mb-3" />
                       <p className="text-sm font-bold">لا توجد سجلات مطابقة!</p>
                     </div>
                   ) : (
                     <>
-                      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-x-auto" id="db-table-card">
+                      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-x-auto">
                         <table className="w-full text-right border-collapse text-xs">
                           <thead>
                             <tr className="bg-gradient-to-l from-teal-900 to-slate-900 text-white font-bold select-none">
@@ -1254,25 +1216,13 @@ export default function SettingsDashboard({
                                   <td className="p-3 text-[10px] text-slate-400">{u.createdAt ? new Date(u.createdAt).toLocaleDateString('ar-EG') : '-'}</td>
                                   <td className="p-3">
                                     <div className="flex items-center justify-center gap-1">
-                                      <button
-                                        onClick={() => setFocusedUser(u)}
-                                        className="p-1.5 bg-teal-50 text-teal-700 rounded-lg border border-teal-200 hover:bg-teal-100 transition cursor-pointer"
-                                        title="عرض التفاصيل"
-                                      >
+                                      <button onClick={() => setFocusedUser(u)} className="p-1.5 bg-teal-50 text-teal-700 rounded-lg border border-teal-200 hover:bg-teal-100 transition cursor-pointer" title="عرض التفاصيل">
                                         <Eye size={11} />
                                       </button>
-                                      <button
-                                        onClick={() => setEditingUser(u)}
-                                        className="p-1.5 bg-amber-50 text-amber-700 rounded-lg border border-amber-200 hover:bg-amber-100 transition cursor-pointer"
-                                        title="تعديل"
-                                      >
+                                      <button onClick={() => setEditingUser(u)} className="p-1.5 bg-amber-50 text-amber-700 rounded-lg border border-amber-200 hover:bg-amber-100 transition cursor-pointer" title="تعديل">
                                         <Edit2 size={11} />
                                       </button>
-                                      <button
-                                        onClick={() => handleDeleteUserDirect(u.id, u.fullName)}
-                                        className="p-1.5 bg-rose-50 text-rose-700 rounded-lg border border-rose-200 hover:bg-rose-100 transition cursor-pointer"
-                                        title="حذف"
-                                      >
+                                      <button onClick={() => handleDeleteUserDirect(u.id, u.fullName)} className="p-1.5 bg-rose-50 text-rose-700 rounded-lg border border-rose-200 hover:bg-rose-100 transition cursor-pointer" title="حذف">
                                         <Trash2 size={11} />
                                       </button>
                                     </div>
@@ -1284,41 +1234,20 @@ export default function SettingsDashboard({
                         </table>
                       </div>
 
-                      {/* Pagination */}
-                      <div className="flex items-center justify-between border-t border-slate-200 pt-3" id="db-pagination">
+                      <div className="flex items-center justify-between border-t border-slate-200 pt-3">
                         <div className="text-[10px] text-slate-500 font-sans">
                           صفحة {dbCurrentPage} من {dbTotalPages} • إجمالي {dbFiltered.length} سجل (من {users.length})
                         </div>
                         <div className="flex items-center gap-1 select-none">
-                          <button
-                            onClick={() => setDbCurrentPage(1)}
-                            disabled={dbCurrentPage === 1}
-                            className="px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer text-[10px] font-bold"
-                          >
-                            أول
-                          </button>
-                          <button
-                            onClick={() => setDbCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={dbCurrentPage === 1}
-                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
-                          >
+                          <button onClick={() => setDbCurrentPage(1)} disabled={dbCurrentPage === 1} className="px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer text-[10px] font-bold">أول</button>
+                          <button onClick={() => setDbCurrentPage(p => Math.max(1, p - 1))} disabled={dbCurrentPage === 1} className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer">
                             <ChevronRight size={14} />
                           </button>
                           <span className="px-2 py-1 text-[10px] font-bold text-slate-600">{dbCurrentPage}</span>
-                          <button
-                            onClick={() => setDbCurrentPage(p => Math.min(dbTotalPages, p + 1))}
-                            disabled={dbCurrentPage === dbTotalPages}
-                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
-                          >
+                          <button onClick={() => setDbCurrentPage(p => Math.min(dbTotalPages, p + 1))} disabled={dbCurrentPage === dbTotalPages} className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer">
                             <ChevronLeft size={14} />
                           </button>
-                          <button
-                            onClick={() => setDbCurrentPage(dbTotalPages)}
-                            disabled={dbCurrentPage === dbTotalPages}
-                            className="px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer text-[10px] font-bold"
-                          >
-                            آخر
-                          </button>
+                          <button onClick={() => setDbCurrentPage(dbTotalPages)} disabled={dbCurrentPage === dbTotalPages} className="px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer text-[10px] font-bold">آخر</button>
                         </div>
                       </div>
                     </>
@@ -1327,7 +1256,7 @@ export default function SettingsDashboard({
               );
             })()}
 
-            {/* ====== TAB 3 (was 2): SCHEMA FORM BUILDERS (CMS) ====== */}
+            {/* ====== TAB 3: SCHEMA FORM BUILDERS (CMS) ====== */}
             {activeTab === 'schema' && (
               <div className="space-y-6 text-right" id="tab-schema-workspace">
                 <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
@@ -1341,44 +1270,22 @@ export default function SettingsDashboard({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-right" id="schema-inputs-grid">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-right">
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم المتغير في قاعدة البيانات (بالإنكليزية فريد)</label>
-                      <input
-                        type="text"
-                        placeholder="مثال: city_select"
-                        value={newFieldName}
-                        onChange={(e) => setNewFieldName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 font-mono"
-                      />
+                      <input type="text" placeholder="مثال: city_select" value={newFieldName} onChange={(e) => setNewFieldName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 font-mono" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم الحقل بالعربية (يظهر للجمهور)</label>
-                      <input
-                        type="text"
-                        placeholder="مثال: اسم المحافظة"
-                        value={newFieldLabelAr}
-                        onChange={(e) => setNewFieldLabelAr(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700"
-                      />
+                      <input type="text" placeholder="مثال: اسم المحافظة" value={newFieldLabelAr} onChange={(e) => setNewFieldLabelAr(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم الحقل بالإنكليزية</label>
-                      <input
-                        type="text"
-                        placeholder="مثال: Governorate"
-                        value={newFieldLabelEn}
-                        onChange={(e) => setNewFieldLabelEn(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700"
-                      />
+                      <input type="text" placeholder="مثال: Governorate" value={newFieldLabelEn} onChange={(e) => setNewFieldLabelEn(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">نوع الإدخال</label>
-                      <select
-                        value={newFieldType}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewFieldType(e.target.value as 'text' | 'number' | 'select' | 'tel' | 'date')}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 bg-white"
-                      >
+                      <select value={newFieldType} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewFieldType(e.target.value as 'text' | 'number' | 'select' | 'tel' | 'date')} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700">
                         <option value="text">نص عادي / Text</option>
                         <option value="number">رقم عددي / Number</option>
                         <option value="tel">رقم هاتف / Tel</option>
@@ -1386,117 +1293,61 @@ export default function SettingsDashboard({
                         <option value="select">قائمة منسدلة / Dropdown Select</option>
                       </select>
                     </div>
-
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">النص المساعد (Placeholder)</label>
-                      <input
-                        type="text"
-                        placeholder="أدخل المحافظة..."
-                        value={newFieldPlaceholderAr}
-                        onChange={(e) => setNewFieldPlaceholderAr(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700"
-                      />
+                      <input type="text" placeholder="أدخل المحافظة..." value={newFieldPlaceholderAr} onChange={(e) => setNewFieldPlaceholderAr(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700" />
                     </div>
-
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">خيارات القائمة المنسدلة (مفصولة بفاصلة ,)</label>
-                      <input
-                        type="text"
-                        placeholder="القاهرة, الجيزة, المنصورة, الإسكندرية"
-                        value={newFieldOptionsAr}
-                        onChange={(e) => setNewFieldOptionsAr(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700"
-                        disabled={newFieldType !== 'select'}
-                      />
+                      <input type="text" placeholder="القاهرة, الجيزة, المنصورة" value={newFieldOptionsAr} onChange={(e) => setNewFieldOptionsAr(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700" disabled={newFieldType !== 'select'} />
                     </div>
-
                     <div className="flex items-center gap-1.5 pt-4">
-                      <input
-                        type="checkbox"
-                        id="field_required"
-                        checked={newFieldRequired}
-                        onChange={(e) => setNewFieldRequired(e.target.checked)}
-                        className="w-4 h-4 cursor-pointer text-slate-900 border-slate-300"
-                      />
+                      <input type="checkbox" id="field_required" checked={newFieldRequired} onChange={(e) => setNewFieldRequired(e.target.checked)} className="w-4 h-4 cursor-pointer text-slate-900 border-slate-300" />
                       <label htmlFor="field_required" className="text-xs font-bold text-slate-700 cursor-pointer select-none">حقل إلزامي التعبئة (Required)</label>
                     </div>
                   </div>
 
-                  <button
-                    onClick={handleAddSchemaField}
-                    className="py-2 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                    style={{ backgroundColor: themeColors.primary }}
-                    id="add-custom-field-btn"
-                  >
+                  <button onClick={handleAddSchemaField} className="py-2 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer" style={{ backgroundColor: themeColors.primary }}>
                     <PlusCircle size={14} />
                     حقن وتضمين الحقل في الاستمارة فورياً
                   </button>
                 </div>
 
-                {/* Listing Active Schema Fields */}
                 <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
                   <h4 className="text-xs font-black text-slate-700">قائمة حقول الاستمارة (الافتراضية والمخصصة):</h4>
                   {fieldsSchemaList.length === 0 ? (
                     <p className="text-[10px] text-slate-400 italic">لا توجد حقول حالياً بالاستمارة.</p>
                   ) : (
                     <div className="space-y-4">
-                      {fieldsSchemaList.map((f, i) => (
+                      {fieldsSchemaList.map((f) => (
                         <div key={f.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-all flex flex-col gap-3">
-                          {/* Field Identifier Row */}
                           <div className="flex items-center justify-between text-xs font-bold border-b border-slate-100 pb-2">
                             <div className="flex items-center gap-1.5">
                               <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-600 font-mono text-[10px]">{f.name}</span>
                               <span className="text-slate-400">|</span>
                               <span className="text-slate-500 text-[10px]">نوع الحقل: {f.type}</span>
                             </div>
-                            
                             <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleUpdateSchemaFieldInline(f.id, { isEnabled: !f.isEnabled })}
-                                className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition ${f.isEnabled ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-200 text-slate-600'}`}
-                              >
+                              <button onClick={() => handleUpdateSchemaFieldInline(f.id, { isEnabled: !f.isEnabled })} className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition ${f.isEnabled ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-200 text-slate-600'}`}>
                                 {f.isEnabled ? '● نشط بالاستمارة' : '○ معطل بالاستمارة'}
                               </button>
-                              <button
-                                onClick={() => deleteSchemaField(f.id)}
-                                className="text-rose-600 hover:bg-rose-50 p-1.5 rounded-lg transition cursor-pointer"
-                                title="حذف الحقل"
-                              >
+                              <button onClick={() => deleteSchemaField(f.id)} className="text-rose-600 hover:bg-rose-50 p-1.5 rounded-lg transition cursor-pointer" title="حذف الحقل">
                                 <Trash2 size={13} />
                               </button>
                             </div>
                           </div>
-
-                          {/* Inline Edits Grid */}
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             <div className="flex flex-col gap-1">
                               <span className="text-[9px] font-bold text-slate-400">اسم الحقل بالعربية</span>
-                              <input 
-                                type="text" 
-                                value={f.labelAr} 
-                                onChange={(e) => handleUpdateSchemaFieldInline(f.id, { labelAr: e.target.value })}
-                                className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs w-full bg-white text-slate-800"
-                              />
+                              <input type="text" value={f.labelAr} onChange={(e) => handleUpdateSchemaFieldInline(f.id, { labelAr: e.target.value })} className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs w-full bg-white text-slate-800" />
                             </div>
-
                             <div className="flex flex-col gap-1">
                               <span className="text-[9px] font-bold text-slate-400">اسم الحقل بالإنكليزية</span>
-                              <input 
-                                type="text" 
-                                value={f.labelEn} 
-                                onChange={(e) => handleUpdateSchemaFieldInline(f.id, { labelEn: e.target.value })}
-                                className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-[11px] font-mono text-left w-full bg-white text-slate-800"
-                                style={{ direction: 'ltr' }}
-                              />
+                              <input type="text" value={f.labelEn} onChange={(e) => handleUpdateSchemaFieldInline(f.id, { labelEn: e.target.value })} className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-[11px] font-mono text-left w-full bg-white text-slate-800" style={{ direction: 'ltr' }} />
                             </div>
-
                             <div className="flex flex-col gap-1">
                               <span className="text-[9px] font-bold text-slate-400">قاعدة التحقق (Validation)</span>
-                              <select
-                                value={f.required ? "true" : "false"}
-                                onChange={(e) => handleUpdateSchemaFieldInline(f.id, { required: e.target.value === "true" })}
-                                className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs bg-white text-slate-700 w-full"
-                              >
+                              <select value={f.required ? "true" : "false"} onChange={(e) => handleUpdateSchemaFieldInline(f.id, { required: e.target.value === "true" })} className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs bg-white text-slate-700 w-full">
                                 <option value="true">إجباري / Required</option>
                                 <option value="false">اختياري / Optional</option>
                               </select>
@@ -1510,7 +1361,7 @@ export default function SettingsDashboard({
               </div>
             )}
 
-            {/* ====== TAB 3: LOCALIZATION OVERWRITES (CMS WORDS) ====== */}
+            {/* ====== TAB 4: LOCALIZATION OVERWRITES ====== */}
             {activeTab === 'localization' && (
               <div className="space-y-6 text-right" id="tab-localization-workspace">
                 <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
@@ -1527,7 +1378,7 @@ export default function SettingsDashboard({
                     </div>
                   )}
 
-                  <div className="space-y-3.5 text-right" id="localization-inputs-grid">
+                  <div className="space-y-3.5 text-right">
                     {localizationKeys.map((item) => (
                       <div key={item.key} className="flex flex-col gap-1">
                         <label className="text-[10px] font-black text-slate-700 flex justify-between">
@@ -1544,12 +1395,7 @@ export default function SettingsDashboard({
                     ))}
                   </div>
 
-                  <button
-                    onClick={handleSaveLocalizationOverrides}
-                    className="py-2.5 px-5 rounded-xl text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md hover:bg-opacity-95"
-                    style={{ backgroundColor: themeColors.primary }}
-                    id="save-localization-overrides-btn"
-                  >
+                  <button onClick={handleSaveLocalizationOverrides} className="py-2.5 px-5 rounded-xl text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md hover:bg-opacity-95" style={{ backgroundColor: themeColors.primary }}>
                     <Save size={14} />
                     حفظ وتطبيق الكلمات الجديدة فورياً
                   </button>
@@ -1557,7 +1403,7 @@ export default function SettingsDashboard({
               </div>
             )}
 
-            {/* ====== TAB 4: FLOATING PHONE/WHATSAPP MANAGEMENT ====== */}
+            {/* ====== TAB 5: FLOATING PHONE/WHATSAPP MANAGEMENT ====== */}
             {activeTab === 'contacts' && (
               <div className="space-y-6 text-right" id="tab-contacts-workspace">
                 <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
@@ -1571,52 +1417,31 @@ export default function SettingsDashboard({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" id="contacts-add-form">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم المالك أو القسم</label>
-                      <input
-                        type="text"
-                        placeholder="الأستاذ مصطفى / شؤون المسجلين"
-                        value={newContactLabel}
-                        onChange={(e) => setNewContactLabel(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700"
-                      />
+                      <input type="text" placeholder="الأستاذ مصطفى / شؤون المسجلين" value={newContactLabel} onChange={(e) => setNewContactLabel(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">رقم الموبايل (الكود الدولي)</label>
-                      <input
-                        type="text"
-                        placeholder="01091028501"
-                        value={newContactPhone}
-                        onChange={(e) => setNewContactPhone(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono bg-white text-slate-700"
-                        style={{ direction: 'ltr' }}
-                      />
+                      <input type="text" placeholder="01091028501" value={newContactPhone} onChange={(e) => setNewContactPhone(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono bg-white text-slate-700" style={{ direction: 'ltr' }} />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">قناة التواصل</label>
-                      <select
-                        value={contactType}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setContactType(e.target.value as 'whatsapp' | 'call')}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 bg-white"
-                      >
+                      <select value={contactType} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setContactType(e.target.value as 'whatsapp' | 'call')} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700">
                         <option value="whatsapp">محادثة واتساب / WhatsApp</option>
                         <option value="call">اتصال هاتفي مباشر / Direct Call</option>
                       </select>
                     </div>
                   </div>
 
-                  <button
-                    onClick={addContactNumber}
-                    className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-slate-950"
-                  >
+                  <button onClick={addContactNumber} className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-slate-950">
                     <Plus size={14} />
                     إدراج وحفظ الهاتف المساعد
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" id="contacts-tables-panels">
-                  {/* Whatsapp list */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-2.5">
                     <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -1641,7 +1466,6 @@ export default function SettingsDashboard({
                     )}
                   </div>
 
-                  {/* Calling list */}
                   <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-2.5">
                     <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-blue-500" style={{ backgroundColor: themeColors.primary }}></span>
@@ -1668,7 +1492,7 @@ export default function SettingsDashboard({
                 </div>
 
                 {/* Custom Floating Buttons section */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4 pt-5 mt-6 border-t-2 border-dashed border-slate-100" id="custom-floating-buttons-section">
+                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4 mt-6 border-t-2 border-dashed border-slate-100">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <div>
                       <h3 className="text-base font-black text-slate-800 flex items-center gap-1.5">
@@ -1682,32 +1506,15 @@ export default function SettingsDashboard({
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
                     <div className="flex flex-col gap-1 col-span-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم أو تسمية الزر (ملاحظة)</label>
-                      <input
-                        type="text"
-                        placeholder="قناتنا على تليجرام"
-                        value={newCustomLabel}
-                        onChange={(e) => setNewCustomLabel(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700"
-                      />
+                      <input type="text" placeholder="قناتنا على تليجرام" value={newCustomLabel} onChange={(e) => setNewCustomLabel(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700" />
                     </div>
                     <div className="flex flex-col gap-1 col-span-2">
                       <label className="text-[10px] font-bold text-slate-500">رابط توجيه الزر (URL بالتفصيل)</label>
-                      <input
-                        type="url"
-                        placeholder="https://t.me/your_channel"
-                        value={newCustomUrl}
-                        onChange={(e) => setNewCustomUrl(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 text-left font-mono"
-                        style={{ direction: 'ltr' }}
-                      />
+                      <input type="url" placeholder="https://t.me/your_channel" value={newCustomUrl} onChange={(e) => setNewCustomUrl(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 text-left font-mono" style={{ direction: 'ltr' }} />
                     </div>
                     <div className="flex flex-col gap-1 col-span-1">
                       <label className="text-[10px] font-bold text-slate-500">شعار الأيقونة</label>
-                      <select
-                        value={newCustomIcon}
-                        onChange={(e) => setNewCustomIcon(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 font-sans"
-                      >
+                      <select value={newCustomIcon} onChange={(e) => setNewCustomIcon(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 font-sans">
                         <option value="Send">طائرة ورقية تليجرام / Telegram (Send)</option>
                         <option value="MessageCircle">واتساب دردشة / WhatsApp</option>
                         <option value="Phone">سماعة اتصال هاتفى / Phone</option>
@@ -1722,40 +1529,22 @@ export default function SettingsDashboard({
                     </div>
                     <div className="flex items-center gap-3 md:col-span-4 mt-1 border-t border-slate-200/50 pt-3 flex-wrap">
                       <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={newCustomIsFloating}
-                          onChange={(e) => setNewCustomIsFloating(e.target.checked)}
-                          className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
-                        />
+                        <input type="checkbox" checked={newCustomIsFloating} onChange={(e) => setNewCustomIsFloating(e.target.checked)} className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 cursor-pointer" />
                         <span>تثبيته كزر طافٍ منفصل 3D على الصفحة الرئيسية فوراً</span>
                       </label>
-                      
                       <div className="mr-auto flex gap-2">
                         {editingCustomId ? (
                           <>
-                            <button
-                              onClick={saveEditCustomButton}
-                              className="py-1.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-md bg-teal-600 hover:bg-teal-700"
-                            >
-                              <Save size={12} />
-                              حفظ التعديل
+                            <button onClick={saveEditCustomButton} className="py-1.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-md bg-teal-600 hover:bg-teal-700">
+                              <Save size={12} />حفظ التعديل
                             </button>
-                            <button
-                              onClick={cancelEditCustomButton}
-                              className="py-1.5 px-3 rounded-xl text-slate-600 text-xs font-bold transition flex items-center gap-1 cursor-pointer border border-slate-200 bg-white hover:bg-slate-50"
-                            >
-                              <X size={12} />
-                              إلغاء
+                            <button onClick={cancelEditCustomButton} className="py-1.5 px-3 rounded-xl text-slate-600 text-xs font-bold transition flex items-center gap-1 cursor-pointer border border-slate-200 bg-white hover:bg-slate-50">
+                              <X size={12} />إلغاء
                             </button>
                           </>
                         ) : (
-                          <button
-                            onClick={addCustomFloatingButton}
-                            className="py-1.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer bg-slate-950 hover:opacity-90"
-                          >
-                            <Plus size={12} />
-                            إدراج زر عائم مخصص
+                          <button onClick={addCustomFloatingButton} className="py-1.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer bg-slate-950 hover:opacity-90">
+                            <Plus size={12} />إدراج زر عائم مخصص
                           </button>
                         )}
                       </div>
@@ -1763,9 +1552,7 @@ export default function SettingsDashboard({
                   </div>
 
                   <div className="space-y-2 mt-4 bg-white p-3 rounded-2xl border border-slate-100 shadow-inner">
-                    <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1 pb-1 border-b border-slate-50">
-                      قائمة أزرار التواصل المخصصة النشطة:
-                    </h5>
+                    <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1 pb-1 border-b border-slate-50">قائمة أزرار التواصل المخصصة النشطة:</h5>
                     {customButtonsList.length === 0 ? (
                       <p className="text-[10px] text-slate-400 italic text-center py-4">لم تقم بإضافة أية أزرار تواصل أو روابط مخصصة بعد.</p>
                     ) : (
@@ -1785,25 +1572,13 @@ export default function SettingsDashboard({
                               </div>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                onClick={() => toggleCustomFloatingState(btn.id)}
-                                className={`p-1.5 rounded-lg transition hover:bg-white text-xs font-bold ${btn.isFloating ? 'text-teal-600' : 'text-slate-400'}`}
-                                title="تغيير حالة ظهور الزر كزر طافٍ"
-                              >
+                              <button onClick={() => toggleCustomFloatingState(btn.id)} className={`p-1.5 rounded-lg transition hover:bg-white text-xs font-bold ${btn.isFloating ? 'text-teal-600' : 'text-slate-400'}`} title="تغيير حالة ظهور الزر كزر طافٍ">
                                 {btn.isFloating ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                               </button>
-                              <button
-                                onClick={() => startEditCustomButton(btn)}
-                                className="text-slate-500 hover:text-slate-800 p-1.5 rounded-lg transition hover:bg-white"
-                                title="تعديل هذا الزر"
-                              >
+                              <button onClick={() => startEditCustomButton(btn)} className="text-slate-500 hover:text-slate-800 p-1.5 rounded-lg transition hover:bg-white" title="تعديل هذا الزر">
                                 <Edit2 size={12} />
                               </button>
-                              <button
-                                onClick={() => deleteCustomFloatingButton(btn.id)}
-                                className="text-rose-600 hover:text-rose-800 p-1.5 rounded-lg transition hover:bg-rose-50"
-                                title="حذف هذا الزر"
-                              >
+                              <button onClick={() => deleteCustomFloatingButton(btn.id)} className="text-rose-600 hover:text-rose-800 p-1.5 rounded-lg transition hover:bg-rose-50" title="حذف هذا الزر">
                                 <Trash2 size={12} />
                               </button>
                             </div>
@@ -1816,7 +1591,7 @@ export default function SettingsDashboard({
               </div>
             )}
 
-            {/* ====== TAB 5: GRAPHIC CUSTOMIZATION (THEME) ====== */}
+            {/* ====== TAB 6: GRAPHIC CUSTOMIZATION (THEME) ====== */}
             {activeTab === 'theme' && (
               <div className="space-y-6 text-right" id="tab-theme-workspace">
                 <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
@@ -1837,11 +1612,7 @@ export default function SettingsDashboard({
                     <h4 className="text-[10px] font-bold text-slate-500">القوالب والأمزجة المعدة مسبقاً (Presets):</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       {colorPresets.map((p, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => applyPresetTheme(p)}
-                          className="text-right p-3 rounded-2xl border border-slate-200/80 bg-white hover:border-slate-300 transition flex flex-col justify-between cursor-pointer"
-                        >
+                        <button key={idx} onClick={() => applyPresetTheme(p)} className="text-right p-3 rounded-2xl border border-slate-200/80 bg-white hover:border-slate-300 transition flex flex-col justify-between cursor-pointer">
                           <span className="text-xs font-bold text-slate-800 block mb-2">{p.name}</span>
                           <span className="flex items-center gap-1.5">
                             <span className="w-5 h-5 rounded-full border shadow-sm block" style={{ backgroundColor: p.primary }}></span>
@@ -1857,58 +1628,27 @@ export default function SettingsDashboard({
                   <div className="pt-4 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-4">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-bold text-slate-500">اللون الأساسي للعلامة (Primary Headers)</label>
-                      <input
-                        type="color"
-                        value={themeColors.primary}
-                        onChange={(e) => handleCustomColorInput('primary', e.target.value)}
-                        className="w-full h-8 cursor-pointer rounded-xl border border-slate-200"
-                      />
+                      <input type="color" value={themeColors.primary} onChange={(e) => handleCustomColorInput('primary', e.target.value)} className="w-full h-8 cursor-pointer rounded-xl border border-slate-200" />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-bold text-slate-500">اللون الثانوي للتفاصيل (Highlights)</label>
-                      <input
-                        type="color"
-                        value={themeColors.secondary}
-                        onChange={(e) => handleCustomColorInput('secondary', e.target.value)}
-                        className="w-full h-8 cursor-pointer rounded-xl border border-slate-200"
-                      />
+                      <input type="color" value={themeColors.secondary} onChange={(e) => handleCustomColorInput('secondary', e.target.value)} className="w-full h-8 cursor-pointer rounded-xl border border-slate-200" />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-bold text-slate-500">لون الأزرار وزر الحفظ والأنشطة (Accent Action)</label>
-                      <input
-                        type="color"
-                        value={themeColors.accent}
-                        onChange={(e) => handleCustomColorInput('accent', e.target.value)}
-                        className="w-full h-8 cursor-pointer rounded-xl border border-slate-200"
-                      />
+                      <input type="color" value={themeColors.accent} onChange={(e) => handleCustomColorInput('accent', e.target.value)} className="w-full h-8 cursor-pointer rounded-xl border border-slate-200" />
                     </div>
-
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-bold text-slate-500">لون تدرج فريم الشاشة البادئ (Bg Gradient Start)</label>
-                      <input
-                        type="color"
-                        value={themeColors.bgGradientStart}
-                        onChange={(e) => handleCustomColorInput('bgGradientStart', e.target.value)}
-                        className="w-full h-8 cursor-pointer rounded-xl border border-slate-200"
-                      />
+                      <input type="color" value={themeColors.bgGradientStart} onChange={(e) => handleCustomColorInput('bgGradientStart', e.target.value)} className="w-full h-8 cursor-pointer rounded-xl border border-slate-200" />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-bold text-slate-500">لون تدرج فريم الشاشة النهائي (Bg Gradient End)</label>
-                      <input
-                        type="color"
-                        value={themeColors.bgGradientEnd}
-                        onChange={(e) => handleCustomColorInput('bgGradientEnd', e.target.value)}
-                        className="w-full h-8 cursor-pointer rounded-xl border border-slate-200"
-                      />
+                      <input type="color" value={themeColors.bgGradientEnd} onChange={(e) => handleCustomColorInput('bgGradientEnd', e.target.value)} className="w-full h-8 cursor-pointer rounded-xl border border-slate-200" />
                     </div>
-
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-bold text-slate-500">مدى استدارة حواف القوالب والأزرار (Roundness)</label>
-                      <select
-                        value={themeColors.borderRadius || 'rounded-xl'}
-                        onChange={(e) => handleCustomColorInput('borderRadius', e.target.value)}
-                        className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700"
-                      >
+                      <select value={themeColors.borderRadius || 'rounded-xl'} onChange={(e) => handleCustomColorInput('borderRadius', e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700">
                         <option value="rounded-none">مربع حاد / Rounded None</option>
                         <option value="rounded-md">استدارة عادية / Rounded Md</option>
                         <option value="rounded-xl">شبه استدارة دائرية / Rounded Xl</option>
@@ -1921,7 +1661,204 @@ export default function SettingsDashboard({
               </div>
             )}
 
-            {/* ====== TAB 6: GITHUB PIPELINE (DATABASE BACKEND) ====== */}
+            {/* ====== TAB 7: SITE CUSTOMIZATION (NEW) ====== */}
+            {activeTab === 'site' && (
+              <div className="space-y-6 text-right" id="tab-site-workspace">
+                {/* Inline CSS for glow+spin animation */}
+                <style>{`
+                  @keyframes neonGlowSpin {
+                    0%   { transform: rotate(0deg);   filter: drop-shadow(0 0 6px #a855f7) drop-shadow(0 0 12px #6366f1); }
+                    25%  { transform: rotate(90deg);  filter: drop-shadow(0 0 8px #ec4899) drop-shadow(0 0 16px #f43f5e); }
+                    50%  { transform: rotate(180deg); filter: drop-shadow(0 0 10px #06b6d4) drop-shadow(0 0 20px #0ea5e9); }
+                    75%  { transform: rotate(270deg); filter: drop-shadow(0 0 8px #10b981) drop-shadow(0 0 16px #84cc16); }
+                    100% { transform: rotate(360deg); filter: drop-shadow(0 0 6px #a855f7) drop-shadow(0 0 12px #6366f1); }
+                  }
+                  .icon-glow-spin {
+                    animation: neonGlowSpin 3s linear infinite;
+                    transform-origin: center;
+                  }
+                  @keyframes neonPulseTitle {
+                    0%, 100% { text-shadow: 0 0 8px #a855f7, 0 0 20px #6366f1, 0 0 40px #4f46e5; }
+                    50%      { text-shadow: 0 0 16px #ec4899, 0 0 32px #f43f5e, 0 0 64px #e11d48; }
+                  }
+                  .title-neon-pulse {
+                    animation: neonPulseTitle 2s ease-in-out infinite;
+                  }
+                `}</style>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-5">
+                  <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                    <Monitor size={18} className="text-violet-600" />
+                    <div>
+                      <h3 className="text-base font-black text-slate-800">تخصيص مظهر الموقع — Site Customization</h3>
+                      <p className="text-[10px] text-slate-400 mt-0.5">تغيير اسم الموقع، الأيقونة (Favicon)، وتأثيرات الحركة — تُحفظ فوراً في data.json عبر GitHub Token</p>
+                    </div>
+                  </div>
+
+                  {siteCustomMessage && (
+                    <div className="p-3 rounded-xl bg-violet-50 border border-violet-100 text-violet-800 text-xs font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 size={14} />
+                      <span>{siteCustomMessage}</span>
+                    </div>
+                  )}
+
+                  {/* 1. Website Title */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Globe size={15} className="text-violet-500" />
+                      <label className="text-sm font-black text-slate-800">اسم الموقع (Website Title)</label>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mr-5">يظهر في تبويب المتصفح وفي الهيدر الرئيسي للموقع — يُحدَّث فورياً عند الحفظ.</p>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={siteTitle}
+                        onChange={(e) => setSiteTitle(e.target.value)}
+                        placeholder="مثال: Group M — منظومة التسجيل"
+                        className="flex-1 px-4 py-2.5 border border-violet-200 rounded-xl text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 text-slate-800 font-bold bg-white transition"
+                      />
+                      {enableIconGlowSpin && siteTitle && (
+                        <span className="text-xs font-black text-violet-600 title-neon-pulse px-3 py-1 rounded-xl bg-violet-50 border border-violet-100 whitespace-nowrap">
+                          {siteTitle}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-slate-400">الحالي المحفوظ: <span className="font-bold text-slate-600">{appConfig.websiteTitle}</span></p>
+                  </div>
+
+                  {/* 2. Favicon / Logo Upload */}
+                  <div className="space-y-3 border-t border-slate-100 pt-4">
+                    <div className="flex items-center gap-2">
+                      <Image size={15} className="text-violet-500" />
+                      <label className="text-sm font-black text-slate-800">أيقونة الموقع (Favicon / Logo)</label>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mr-5">ارفع أيقونة PNG أو SVG لتظهر في التبويب والهيدر. يُوصى بحجم 64×64 بكسل على الأقل.</p>
+
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-2xl border border-violet-100 bg-violet-50/30">
+                      {/* Preview */}
+                      <div className="flex flex-col items-center gap-2 shrink-0">
+                        <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-violet-300 flex items-center justify-center bg-white overflow-hidden">
+                          {siteFaviconBase64 ? (
+                            <img
+                              src={siteFaviconBase64}
+                              alt="Favicon Preview"
+                              loading="lazy"
+                              className={`w-12 h-12 object-contain ${enableIconGlowSpin ? 'icon-glow-spin' : ''}`}
+                            />
+                          ) : (
+                            <span className="text-[10px] text-slate-400 text-center font-bold leading-tight">لا توجد<br/>أيقونة</span>
+                          )}
+                        </div>
+                        <span className="text-[9px] text-slate-400 font-bold">معاينة الأيقونة</span>
+                        {enableIconGlowSpin && siteFaviconBase64 && (
+                          <span className="text-[8px] text-violet-600 font-black bg-violet-100 px-1.5 py-0.5 rounded-full animate-pulse">✨ Glow + Spin</span>
+                        )}
+                      </div>
+
+                      {/* Upload Controls */}
+                      <div className="flex-1 space-y-2">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+                          onChange={handleFaviconUpload}
+                          className="w-full text-xs text-slate-600 bg-white border border-slate-200 rounded-xl px-3 py-2 outline-none file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-violet-600 file:text-white hover:file:bg-violet-700 cursor-pointer"
+                        />
+                        <p className="text-[9px] text-slate-400">يدعم: PNG, JPG, SVG, WEBP • حجم موصى به: 64×64px أو 128×128px • سيتم ضغط الصور تلقائياً (Lazy Compress)</p>
+                        {siteFaviconBase64 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSiteFaviconBase64('');
+                              // Remove favicon from browser
+                              const link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
+                              if (link) link.href = '/favicon.ico';
+                            }}
+                            className="text-[10px] text-rose-500 font-bold hover:underline flex items-center gap-1"
+                          >
+                            <Trash2 size={11} />
+                            إزالة الأيقونة الحالية وإعادة تعيين الافتراضي
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Glow + Spin Animation Toggle */}
+                  <div className="border-t border-slate-100 pt-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Zap size={15} className="text-violet-500" />
+                      <label className="text-sm font-black text-slate-800">تأثير الحركة الإبداعية (Creative Motion Effect)</label>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mr-5">عند التفعيل، تبدأ الأيقونة في الدوران المستمر بهالة ضوئية نيون RGB ملونة (Neon Glow + Infinite Rotation) — CSS متطور 100%.</p>
+
+                    <div className="flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 bg-white"
+                      style={{ borderColor: enableIconGlowSpin ? '#7c3aed' : '#e2e8f0' }}>
+                      <div className="space-y-1">
+                        <p className="text-sm font-black text-slate-800 flex items-center gap-2">
+                          {enableIconGlowSpin && <span className="inline-block w-2 h-2 rounded-full bg-violet-500 animate-ping"></span>}
+                          الأيقونة "بتلف وتنوّر" (Glowing & Rotating)
+                        </p>
+                        <p className="text-[10px] text-slate-500">
+                          {enableIconGlowSpin
+                            ? '✅ تأثير Neon Glow + Infinite Rotation مُفعَّل الآن على الأيقونة'
+                            : '⭕ التأثير معطَّل حالياً — فعّله لمنح موقعك طابعاً حيوياً ومبهراً'}
+                        </p>
+                      </div>
+
+                      {/* Toggle Switch */}
+                      <button
+                        type="button"
+                        onClick={() => setEnableIconGlowSpin(prev => !prev)}
+                        className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none cursor-pointer shrink-0 ${enableIconGlowSpin ? 'bg-violet-600' : 'bg-slate-300'}`}
+                        role="switch"
+                        aria-checked={enableIconGlowSpin}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform duration-300 ${enableIconGlowSpin ? '-translate-x-8' : '-translate-x-1'}`}
+                          style={{ marginLeft: enableIconGlowSpin ? undefined : '4px', transform: enableIconGlowSpin ? 'translateX(32px)' : 'translateX(4px)' }}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Live Demo */}
+                    {enableIconGlowSpin && (
+                      <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-950 border border-violet-900/50 animate-in fade-in duration-300">
+                        <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center overflow-hidden">
+                          {siteFaviconBase64 ? (
+                            <img src={siteFaviconBase64} alt="Live preview" className="w-8 h-8 object-contain icon-glow-spin" loading="lazy" />
+                          ) : (
+                            <Settings size={20} className="text-violet-400 icon-glow-spin" />
+                          )}
+                        </div>
+                        <div>
+                          <p className={`text-sm font-black text-white ${enableIconGlowSpin ? 'title-neon-pulse' : ''}`}>{siteTitle || appConfig.websiteTitle}</p>
+                          <p className="text-[9px] text-slate-400">معاينة حية للهيدر مع تأثير النيون</p>
+                        </div>
+                        <span className="mr-auto text-[9px] text-violet-400 font-black animate-pulse bg-violet-900/30 px-2 py-1 rounded-full">LIVE PREVIEW</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Save Button */}
+                  <div className="border-t border-slate-100 pt-4 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleSaveSiteCustomization}
+                      className="py-3 px-6 rounded-2xl text-white font-black text-sm transition flex items-center gap-2 cursor-pointer shadow-lg hover:shadow-violet-200 hover:scale-[1.02] active:scale-[0.98]"
+                      style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)' }}
+                    >
+                      <Save size={16} />
+                      حفظ تخصيصات الموقع في جيت هاب (Optimistic UI)
+                    </button>
+                    <p className="text-[10px] text-slate-400">
+                      سيتم تحديث العنوان والأيقونة فوراً في المتصفح + حفظ دائم في <span className="font-mono font-bold">data.json</span> عبر <span className="font-mono font-bold">VITE_GITHUB_TOKEN</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ====== TAB 8: GITHUB PIPELINE (DATABASE BACKEND) ====== */}
             {activeTab === 'github' && (
               <div className="space-y-6 text-right" id="tab-github-workspace">
                 <form onSubmit={handleSaveGithubConfig} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
@@ -1930,13 +1867,7 @@ export default function SettingsDashboard({
                       <Github size={16} />
                       إعدادات مزامنة الملفات وقاعدة البيانات بـ GitHub Storage API
                     </h3>
-                    <input
-                      type="checkbox"
-                      id="gh_channel_enabled"
-                      checked={ghEnabled}
-                      onChange={(e) => setGhEnabled(e.target.checked)}
-                      className="w-4 h-4 cursor-pointer text-slate-900"
-                    />
+                    <input type="checkbox" id="gh_channel_enabled" checked={ghEnabled} onChange={(e) => setGhEnabled(e.target.checked)} className="w-4 h-4 cursor-pointer text-slate-900" />
                   </div>
                   <p className="text-[10px] text-slate-400">قم بربط هذا التطبيق السحابي بمستودع جيت هاب خاص بك لحفظ استمارات وبيانات المسجلين مع المرفقات ثانية بثانية بدون سيرفر خارجي.</p>
 
@@ -1947,80 +1878,34 @@ export default function SettingsDashboard({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-right" id="github-config-grid">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-right">
                     <div className="flex flex-col gap-1 sm:col-span-2">
                       <label className="text-[10px] font-bold text-slate-500">رمز هويتك المعتمد (GitHub Personal Access Token - PAT)</label>
-                      <input
-                        type="password"
-                        placeholder="ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-                        value={ghToken}
-                        onChange={(e) => setGhToken(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none font-mono text-left"
-                        style={{ direction: 'ltr' }}
-                      />
+                      <input type="password" placeholder="ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" value={ghToken} onChange={(e) => setGhToken(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none font-mono text-left" style={{ direction: 'ltr' }} />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم حسابك / منظمتك (Repo Owner)</label>
-                      <input
-                        type="text"
-                        placeholder="مثال: AhmedAli"
-                        value={ghOwner}
-                        onChange={(e) => setGhOwner(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono"
-                        style={{ direction: 'ltr' }}
-                        required={ghEnabled}
-                      />
+                      <input type="text" placeholder="مثال: AhmedAli" value={ghOwner} onChange={(e) => setGhOwner(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono" style={{ direction: 'ltr' }} required={ghEnabled} />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم مستودع الرفع (Repository Name)</label>
-                      <input
-                        type="text"
-                        placeholder="مثال: custom-enroll-db"
-                        value={ghRepo}
-                        onChange={(e) => setGhRepo(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono"
-                        style={{ direction: 'ltr' }}
-                        required={ghEnabled}
-                      />
+                      <input type="text" placeholder="مثال: custom-enroll-db" value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono" style={{ direction: 'ltr' }} required={ghEnabled} />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم الغصن أو الفرع (Branch)</label>
-                      <input
-                        type="text"
-                        placeholder="main / master"
-                        value={ghBranch}
-                        onChange={(e) => setGhBranch(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono"
-                        style={{ direction: 'ltr' }}
-                      />
+                      <input type="text" placeholder="main / master" value={ghBranch} onChange={(e) => setGhBranch(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono" style={{ direction: 'ltr' }} />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">مسمى ملف الطلاب النهائي (Users File)</label>
-                      <input
-                        type="text"
-                        placeholder="data.json"
-                        value={ghDataPath}
-                        onChange={(e) => setGhDataPath(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono"
-                        style={{ direction: 'ltr' }}
-                      />
+                      <input type="text" placeholder="data.json" value={ghDataPath} onChange={(e) => setGhDataPath(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono" style={{ direction: 'ltr' }} />
                     </div>
-
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">عنوان المنفذ الرئيسي للموقع (Custom Port / Website Title)</label>
-                      <input
-                        type="text"
-                        placeholder="Group m"
-                        value={websiteTitle}
-                        onChange={(e) => setWebsiteTitle(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 font-sans"
-                        required
-                      />
+                      <input type="text" placeholder="Group m" value={websiteTitle} onChange={(e) => setWebsiteTitle(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 font-sans" required />
                     </div>
 
                     <div className="flex flex-col gap-1 sm:col-span-2 border-t border-slate-100 pt-3 mt-2">
                       <span className="text-xs font-black text-slate-800 mb-2">الشعار المخصص وهوية الشاشات (Custom Icon & RGB Glow Effects)</span>
-                      
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                         <div className="flex flex-col gap-2">
                           <label className="text-[10px] font-bold text-slate-500">رفع شعار الموقع والمقود (Favicon Logo Upload Slot)</label>
@@ -2034,12 +1919,7 @@ export default function SettingsDashboard({
                                 reader.onload = (event) => {
                                   const base64 = event.target?.result as string;
                                   setLogoBase64(base64);
-                                  // Trigger immediate update and sync
-                                  const updatedConfig = {
-                                    ...appConfig,
-                                    logoBase64: base64
-                                  };
-                                  onUpdateConfig(updatedConfig);
+                                  onUpdateConfig({ ...appConfig, logoBase64: base64 });
                                 };
                                 reader.readAsDataURL(file);
                               }
@@ -2058,12 +1938,7 @@ export default function SettingsDashboard({
                               onChange={(e) => {
                                 const checked = e.target.checked;
                                 setEnableTitleAnimation(checked);
-                                // Trigger immediate update and sync
-                                const updatedConfig = {
-                                  ...appConfig,
-                                  enableTitleAnimation: checked
-                                };
-                                onUpdateConfig(updatedConfig);
+                                onUpdateConfig({ ...appConfig, enableTitleAnimation: checked });
                               }}
                               className="w-4 h-4 cursor-pointer"
                             />
@@ -2074,16 +1949,12 @@ export default function SettingsDashboard({
                             <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2">
                               <span className="text-[10px] text-slate-500">معاينة الشعار المرفوع حالياً:</span>
                               <div className="flex items-center gap-2">
-                                <img src={logoBase64} alt="Preview Logo" className="w-8 h-8 object-contain rounded-lg border border-slate-200 animate-3d-spin-float animate-rgb-glow" referrerPolicy="no-referrer" />
+                                <img src={logoBase64} alt="Preview Logo" loading="lazy" className="w-8 h-8 object-contain rounded-lg border border-slate-200 animate-3d-spin-float animate-rgb-glow" referrerPolicy="no-referrer" />
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setLogoBase64('');
-                                    const updatedConfig = {
-                                      ...appConfig,
-                                      logoBase64: ''
-                                    };
-                                    onUpdateConfig(updatedConfig);
+                                    onUpdateConfig({ ...appConfig, logoBase64: '' });
                                   }}
                                   className="text-[10px] text-rose-500 font-bold hover:underline"
                                 >
@@ -2097,22 +1968,12 @@ export default function SettingsDashboard({
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 pt-2" id="github-actions">
-                    <button
-                      type="submit"
-                      className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:opacity-95"
-                      style={{ backgroundColor: themeColors.primary }}
-                    >
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
+                    <button type="submit" className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:opacity-95" style={{ backgroundColor: themeColors.primary }}>
                       <Save size={13} />
                       حفظ إعدادات المستودع محلياً
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={triggerForceSync}
-                      disabled={syncStatus === 'syncing' || !ghToken}
-                      className="py-2.5 px-4 rounded-xl text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-xs font-bold border border-slate-200 transition flex items-center gap-1 cursor-pointer"
-                    >
+                    <button type="button" onClick={triggerForceSync} disabled={syncStatus === 'syncing' || !ghToken} className="py-2.5 px-4 rounded-xl text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-xs font-bold border border-slate-200 transition flex items-center gap-1 cursor-pointer">
                       <RefreshCw size={13} className={syncStatus === 'syncing' ? 'animate-spin' : ''} />
                       تزامن وصهر الكشوفات سحابياً بالكامل الآن (Reconcile)
                     </button>
@@ -2121,7 +1982,7 @@ export default function SettingsDashboard({
               </div>
             )}
 
-            {/* ====== TAB 7: ADMINISTRATIVE SECURITY ====== */}
+            {/* ====== TAB 9: ADMINISTRATIVE SECURITY ====== */}
             {activeTab === 'security' && (
               <div className="space-y-6 text-right" id="tab-security-workspace">
                 <form onSubmit={handleSecurityPassUpdate} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
@@ -2132,48 +1993,31 @@ export default function SettingsDashboard({
                   <p className="text-[10px] text-slate-400">تعديل الرمز السري المستخدم للاستيثاق ودخول لوحات التحكم عبر الأجهزة المشغلة للبرنامج.</p>
 
                   {secSuccess && (
-                     <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs font-semibold flex items-center gap-1.5">
-                       <CheckCircle2 size={13} />
-                       <span>{secSuccess}</span>
-                     </div>
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 size={13} />
+                      <span>{secSuccess}</span>
+                    </div>
                   )}
 
                   {secError && (
-                     <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-xs font-semibold flex items-center gap-1.5">
-                       <AlertCircle size={13} />
-                       <span>{secError}</span>
-                     </div>
+                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-xs font-semibold flex items-center gap-1.5">
+                      <AlertCircle size={13} />
+                      <span>{secError}</span>
+                    </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4" id="security-inputs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">كلمة المرور الجديدة</label>
-                      <input
-                        type="password"
-                        placeholder="••••••••"
-                        value={securityPassword}
-                        onChange={(e) => setSecurityPassword(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-center font-mono bg-white text-slate-700"
-                      />
+                      <input type="password" placeholder="••••••••" value={securityPassword} onChange={(e) => setSecurityPassword(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-center font-mono bg-white text-slate-700" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">تأكيد كلمة المرور</label>
-                      <input
-                        type="password"
-                        placeholder="••••••••"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-center font-mono bg-white text-slate-700"
-                      />
+                      <input type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-center font-mono bg-white text-slate-700" />
                     </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:scale-[1.01]"
-                    style={{ backgroundColor: themeColors.primary }}
-                    id="save-security-btn"
-                  >
+                  <button type="submit" className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:scale-[1.01]" style={{ backgroundColor: themeColors.primary }}>
                     <Save size={13} />
                     تحديث الرمز السري لبوابة الإشراف آمنياً
                   </button>
@@ -2191,29 +2035,19 @@ export default function SettingsDashboard({
           <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl border border-slate-100 text-right flex flex-col max-h-[90vh]">
             <header className="px-5 py-3 text-white flex items-center justify-between select-none" style={{ backgroundColor: themeColors.primary }}>
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => printUserProfile(focusedUser, appConfig.websiteTitle)}
-                  className="flex items-center gap-1 cursor-pointer bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-xl text-[10px] font-bold border border-white/10 transition"
-                >
+                <button type="button" onClick={() => printUserProfile(focusedUser, appConfig.websiteTitle)} className="flex items-center gap-1 cursor-pointer bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-xl text-[10px] font-bold border border-white/10 transition">
                   <Printer size={12} />
                   <span>تصدير PDF</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => exportProfileAsHTML2Canvas(focusedUser, themeColors, appConfig.websiteTitle)}
-                  className="flex items-center gap-1 cursor-pointer bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-xl text-[10px] font-bold border border-white/10 transition"
-                >
+                <button type="button" onClick={() => exportProfileAsHTML2Canvas(focusedUser, themeColors, appConfig.websiteTitle)} className="flex items-center gap-1 cursor-pointer bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-xl text-[10px] font-bold border border-white/10 transition">
                   <FileDown size={12} />
                   <span>تنزيل PNG (عالي الدقة)</span>
                 </button>
               </div>
-              
               <div className="text-center">
                 <span className="text-xs font-black">صحيفة تسجيل: {focusedUser.fullName}</span>
                 <span className="text-[9px] text-slate-300 block">ID: {focusedUser.id}</span>
               </div>
-
               <button onClick={() => setFocusedUser(null)} className="text-white hover:text-slate-100 cursor-pointer">
                 <X size={15} />
               </button>
@@ -2251,13 +2085,12 @@ export default function SettingsDashboard({
                 </div>
                 <div>
                   <p className="text-[9px] text-slate-400 font-bold">اسم العُدَد المستخدمة (EQUIPMENT USED)</p>
-                  <p className="font-bold text-teal-750 font-semibold text-slate-800">{focusedUser.equipmentUsed || '-'}</p>
+                  <p className="font-bold text-slate-800">{focusedUser.equipmentUsed || '-'}</p>
                 </div>
                 <div>
                   <p className="text-[9px] text-slate-400 font-bold">عددها كام (QUANTITY)</p>
-                  <p className="font-bold text-teal-750 font-semibold text-slate-800">{focusedUser.equipmentQuantity !== undefined ? focusedUser.equipmentQuantity : '-'}</p>
+                  <p className="font-bold text-slate-800">{focusedUser.equipmentQuantity !== undefined ? focusedUser.equipmentQuantity : '-'}</p>
                 </div>
-
                 {focusedUser.customFields && Object.entries(focusedUser.customFields).map(([k, v]) => (
                   <div key={k} className="col-span-1 bg-amber-50 p-2 rounded-lg border border-amber-100">
                     <p className="text-[9px] text-amber-700 font-black">{k}</p>
@@ -2266,80 +2099,47 @@ export default function SettingsDashboard({
                 ))}
               </div>
 
-              {/* 4 Photos Grid Preview inside details modal */}
               <div>
                 <h4 className="text-xs font-black text-slate-700 mb-2.5">المستندات والوثائق المرفقة (اضغط للتكبير):</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  
-                  {/* Slot 1 */}
                   <div className="flex flex-col gap-1 text-center">
                     <p className="text-[9px] text-slate-500 font-bold">1. صورة شخصية</p>
                     {focusedUser.personalPhoto || focusedUser.idPhoto ? (
-                      <img
-                        src={focusedUser.personalPhoto || focusedUser.idPhoto}
-                        alt="Personal Photo"
-                        onClick={() => setLightboxPhoto(focusedUser.personalPhoto || focusedUser.idPhoto)}
-                        className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-zoom-in hover:opacity-90 active:scale-95 transition"
-                      />
+                      <img src={focusedUser.personalPhoto || focusedUser.idPhoto} alt="Personal Photo" loading="lazy" onClick={() => setLightboxPhoto(focusedUser.personalPhoto || focusedUser.idPhoto)} className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-zoom-in hover:opacity-90 active:scale-95 transition" />
                     ) : (
                       <div className="w-full h-24 bg-slate-100 flex items-center justify-center text-slate-400 rounded-xl text-[10px] font-bold border border-dashed border-slate-200">غير مرفقة</div>
                     )}
                   </div>
-
-                  {/* Slot 2 */}
                   <div className="flex flex-col gap-1 text-center">
                     <p className="text-[9px] text-slate-500 font-bold">2. بطاقة (وجه)</p>
                     {focusedUser.nationalIdFront ? (
-                      <img
-                        src={focusedUser.nationalIdFront}
-                        alt="National ID Front"
-                        onClick={() => setLightboxPhoto(focusedUser.nationalIdFront!)}
-                        className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-zoom-in hover:opacity-90 active:scale-95 transition"
-                      />
+                      <img src={focusedUser.nationalIdFront} alt="National ID Front" loading="lazy" onClick={() => setLightboxPhoto(focusedUser.nationalIdFront!)} className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-zoom-in hover:opacity-90 active:scale-95 transition" />
                     ) : (
                       <div className="w-full h-24 bg-slate-100 flex items-center justify-center text-slate-400 rounded-xl text-[10px] font-bold border border-dashed border-slate-200">غير مرفقة</div>
                     )}
                   </div>
-
-                  {/* Slot 3 */}
                   <div className="flex flex-col gap-1 text-center">
                     <p className="text-[9px] text-slate-500 font-bold">3. بطاقة (ظهر)</p>
                     {focusedUser.nationalIdBack ? (
-                      <img
-                        src={focusedUser.nationalIdBack}
-                        alt="National ID Back"
-                        onClick={() => setLightboxPhoto(focusedUser.nationalIdBack!)}
-                        className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-zoom-in hover:opacity-90 active:scale-95 transition"
-                      />
+                      <img src={focusedUser.nationalIdBack} alt="National ID Back" loading="lazy" onClick={() => setLightboxPhoto(focusedUser.nationalIdBack!)} className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-zoom-in hover:opacity-90 active:scale-95 transition" />
                     ) : (
                       <div className="w-full h-24 bg-slate-100 flex items-center justify-center text-slate-400 rounded-xl text-[10px] font-bold border border-dashed border-slate-200">غير مرفقة</div>
                     )}
                   </div>
-
-                  {/* Slot 4 */}
                   <div className="flex flex-col gap-1 text-center">
                     <p className="text-[9px] text-slate-500 font-bold">4. شهادة ميلاد</p>
                     {focusedUser.birthCertificate ? (
-                      <img
-                        src={focusedUser.birthCertificate}
-                        alt="Birth Certificate"
-                        onClick={() => setLightboxPhoto(focusedUser.birthCertificate!)}
-                        className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-zoom-in hover:opacity-90 active:scale-95 transition"
-                      />
+                      <img src={focusedUser.birthCertificate} alt="Birth Certificate" loading="lazy" onClick={() => setLightboxPhoto(focusedUser.birthCertificate!)} className="w-full h-24 object-cover rounded-xl border border-slate-200 cursor-zoom-in hover:opacity-90 active:scale-95 transition" />
                     ) : (
                       <div className="w-full h-24 bg-slate-100 flex items-center justify-center text-slate-400 rounded-xl text-[10px] font-bold border border-dashed border-slate-200">غير مرفقة</div>
                     )}
                   </div>
-
                 </div>
               </div>
             </div>
 
             <footer className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-              <button
-                onClick={() => setFocusedUser(null)}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer"
-              >
+              <button onClick={() => setFocusedUser(null)} className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer">
                 إغلاق الكشف
               </button>
             </footer>
@@ -2359,130 +2159,55 @@ export default function SettingsDashboard({
             </header>
 
             <div className="p-5 overflow-y-auto space-y-3 text-xs" dir="rtl">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" id="editing-form-grid">
-                
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-slate-500">الاسم الأول والوسطى</label>
-                  <input
-                    type="text"
-                    value={editingUser.fullName}
-                    onChange={(e) => setEditingUser({ ...editingUser, fullName: e.target.value })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-800 font-sans"
-                    required
-                  />
+                  <input type="text" value={editingUser.fullName} onChange={(e) => setEditingUser({ ...editingUser, fullName: e.target.value })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-800 font-sans" required />
                 </div>
-
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-slate-500">اسم الأب</label>
-                  <input
-                    type="text"
-                    value={editingUser.fatherName}
-                    onChange={(e) => setEditingUser({ ...editingUser, fatherName: e.target.value })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-800 font-sans"
-                    required
-                  />
+                  <input type="text" value={editingUser.fatherName} onChange={(e) => setEditingUser({ ...editingUser, fatherName: e.target.value })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-800 font-sans" required />
                 </div>
-
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-slate-500">اسم العائلة</label>
-                  <input
-                    type="text"
-                    value={editingUser.lastName}
-                    onChange={(e) => setEditingUser({ ...editingUser, lastName: e.target.value })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-800 font-sans"
-                    required
-                  />
+                  <input type="text" value={editingUser.lastName} onChange={(e) => setEditingUser({ ...editingUser, lastName: e.target.value })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-800 font-sans" required />
                 </div>
-
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-slate-500">رقم الهاتف</label>
-                  <input
-                    type="text"
-                    value={editingUser.phone}
-                    onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
-                    className="px-3 py-2 border rounded-xl outline-none text-left font-mono bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-800"
-                    required
-                  />
+                  <input type="text" value={editingUser.phone} onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })} className="px-3 py-2 border rounded-xl outline-none text-left font-mono bg-slate-50 text-slate-800 focus:bg-white focus:border-slate-800" required />
                 </div>
-
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-slate-500">العمر</label>
-                  <input
-                    type="number"
-                    value={editingUser.age}
-                    onChange={(e) => setEditingUser({ ...editingUser, age: parseInt(e.target.value) || 0 })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white"
-                    required
-                  />
+                  <input type="number" value={editingUser.age} onChange={(e) => setEditingUser({ ...editingUser, age: parseInt(e.target.value) || 0 })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white" required />
                 </div>
-
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-slate-500">تاريخ الميلاد</label>
-                  <input
-                    type="date"
-                    value={editingUser.dob}
-                    onChange={(e) => setEditingUser({ ...editingUser, dob: e.target.value })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white text-right"
-                    required
-                  />
+                  <input type="date" value={editingUser.dob} onChange={(e) => setEditingUser({ ...editingUser, dob: e.target.value })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white text-right" required />
                 </div>
-
                 <div className="flex flex-col gap-1">
                   <label className="font-bold text-slate-500">المدرسة أو الجامعة</label>
-                  <input
-                    type="text"
-                    value={editingUser.schoolOrUniversity}
-                    onChange={(e) => setEditingUser({ ...editingUser, schoolOrUniversity: e.target.value })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white"
-                  />
+                  <input type="text" value={editingUser.schoolOrUniversity} onChange={(e) => setEditingUser({ ...editingUser, schoolOrUniversity: e.target.value })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white" />
                 </div>
-
                 <div className="flex flex-col gap-1 font-sans">
                   <label className="font-bold text-slate-500">العنوان بالتفصيل</label>
-                  <input
-                    type="text"
-                    value={editingUser.streetAddress}
-                    onChange={(e) => setEditingUser({ ...editingUser, streetAddress: e.target.value })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white"
-                    required
-                  />
+                  <input type="text" value={editingUser.streetAddress} onChange={(e) => setEditingUser({ ...editingUser, streetAddress: e.target.value })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white" required />
                 </div>
-
                 <div className="flex flex-col gap-1 font-sans">
                   <label className="font-bold text-slate-500">اسم العُدَد المستخدمة (EQUIPMENT USED)</label>
-                  <input
-                    type="text"
-                    value={editingUser.equipmentUsed || ''}
-                    onChange={(e) => setEditingUser({ ...editingUser, equipmentUsed: e.target.value })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white"
-                  />
+                  <input type="text" value={editingUser.equipmentUsed || ''} onChange={(e) => setEditingUser({ ...editingUser, equipmentUsed: e.target.value })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white" />
                 </div>
-
                 <div className="flex flex-col gap-1 font-sans">
                   <label className="font-bold text-slate-500">عددها كام (QUANTITY)</label>
-                  <input
-                    type="number"
-                    value={editingUser.equipmentQuantity !== undefined ? editingUser.equipmentQuantity : ''}
-                    onChange={(e) => setEditingUser({ ...editingUser, equipmentQuantity: e.target.value ? parseInt(e.target.value) : undefined })}
-                    className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white"
-                  />
+                  <input type="number" value={editingUser.equipmentQuantity !== undefined ? editingUser.equipmentQuantity : ''} onChange={(e) => setEditingUser({ ...editingUser, equipmentQuantity: e.target.value ? parseInt(e.target.value) : undefined })} className="px-3 py-2 border rounded-xl outline-none bg-slate-50 text-slate-800 focus:bg-white" />
                 </div>
-
               </div>
             </div>
 
             <footer className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setEditingUser(null)}
-                className="px-4 py-2 border border-slate-200 rounded-xl text-slate-700 bg-white font-bold cursor-pointer"
-              >
+              <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 border border-slate-200 rounded-xl text-slate-700 bg-white font-bold cursor-pointer">
                 إلغاء التعديل
               </button>
-              <button
-                type="submit"
-                className="px-5 py-2 rounded-xl text-white font-bold bg-amber-600 hover:bg-amber-700 hover:opacity-95 shadow-md cursor-pointer"
-              >
+              <button type="submit" className="px-5 py-2 rounded-xl text-white font-bold bg-amber-600 hover:bg-amber-700 hover:opacity-95 shadow-md cursor-pointer">
                 تطبيق وحفظ التعديلات رياديـاً
               </button>
             </footer>
@@ -2492,20 +2217,14 @@ export default function SettingsDashboard({
 
       {/* --- IMMERSIVE SINGLE LIGHTBOX EXPANSION FOR PHOTOMETRIC CHECKS --- */}
       {lightboxPhoto && (
-        <div 
-          className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center p-4 cursor-zoom-out select-none animate-in fade-in min-h-screen" 
-          onClick={() => setLightboxPhoto(null)}
-          id="lightbox-container"
-        >
-          <button 
-            className="absolute top-4 right-4 text-white bg-white/10 hover:bg-white/20 p-2.5 rounded-full transition"
-            onClick={() => setLightboxPhoto(null)}
-          >
+        <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center p-4 cursor-zoom-out select-none animate-in fade-in min-h-screen" onClick={() => setLightboxPhoto(null)}>
+          <button className="absolute top-4 right-4 text-white bg-white/10 hover:bg-white/20 p-2.5 rounded-full transition" onClick={() => setLightboxPhoto(null)}>
             <X size={20} />
           </button>
           <img
             src={lightboxPhoto}
             alt="Expanded certified file preview zoom"
+            loading="lazy"
             className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
           />
           <p className="text-slate-400 font-bold font-sans text-xs mt-3 select-all">Base64 Certified Stream Active • Click anywhere to exit zoom</p>
