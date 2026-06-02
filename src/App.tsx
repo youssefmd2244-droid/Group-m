@@ -34,7 +34,7 @@ const DEFAULT_CALLS: ContactNumber[] = [
 
 const DEFAULT_CONFIG: AppConfig = {
   websiteTitle: 'Group m',
-  masterPasswordHash: '20042007',
+  masterPasswordHash: '',
   whatsappNumbers: DEFAULT_WHATSAPP,
   callNumbers: DEFAULT_CALLS,
   theme: DEFAULT_THEME,
