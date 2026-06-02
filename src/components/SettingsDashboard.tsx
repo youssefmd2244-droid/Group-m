@@ -156,6 +156,8 @@ export default function SettingsDashboard({
       }
       setAuthError('');
       if (onAdminLogin) onAdminLogin();
+      // Force re-render: reload page so all state is fresh after login
+      setTimeout(() => window.location.reload(), 80);
     } else {
       setAuthError('الرمز السري المكتوب خاطئ! الرجاء إعادة المحاولة.');
     }
@@ -277,12 +279,14 @@ export default function SettingsDashboard({
     if (window.confirm(`هل أنت متأكد من مسح استمارة الطالب "${name}" نهائياً من الشبكة؟`)) {
       const updated = users.filter((u) => u.id !== id);
       onUpdateUsers(updated);
+      pushUsersToGithub(updated);
     }
   };
 
   const handlePurgeAll = () => {
     if (window.confirm('🚨 تحذير أمني: هل أنت متأكد من مسح وتطهير جميع السجلات والملفات المرفقة بالكامل من الموقع والشبكة؟ لا يمكن التراجع عن هذا الإجراء!')) {
       onUpdateUsers([]);
+      pushUsersToGithub([]);
     }
   };
 
@@ -291,6 +295,7 @@ export default function SettingsDashboard({
     if (!editingUser) return;
     const updated = users.map((u) => (u.id === editingUser.id ? editingUser : u));
     onUpdateUsers(updated);
+    pushUsersToGithub(updated);
     setEditingUser(null);
   };
 
@@ -520,6 +525,72 @@ export default function SettingsDashboard({
     onUpdateConfig({ ...appConfig, theme: updatedTheme });
   };
 
+  // ── GITHUB CONFIG PUSH ENGINE ─────────────────────────────────────────────
+  /** Push updated AppConfig (as embedded in data.json) to GitHub */
+  const pushConfigToGithub = async (updatedConfig: AppConfig) => {
+    if (!GH_TOKEN) return;
+    // We store config fields inside data.json under a special __config__ key
+    // to avoid a separate config.json file. Merge with existing users payload.
+    try {
+      const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}`;
+      const getRes = await fetch(`${url}?ref=${ghBranch || 'main'}`, {
+        headers: {
+          Authorization: `Bearer ${GH_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+      const shaData = getRes.ok ? await getRes.json() : null;
+      const currentSha: string | undefined = shaData?.sha;
+
+      // Decode existing file to preserve users array, then inject __config__
+      let existingUsers: UserRecord[] = users;
+      if (shaData?.content) {
+        try {
+          const decoded = decodeURIComponent(escape(atob(shaData.content.replace(/\n/g, ''))));
+          const parsed = JSON.parse(decoded);
+          if (Array.isArray(parsed)) existingUsers = parsed;
+          else if (Array.isArray(parsed?.users)) existingUsers = parsed.users;
+        } catch (_) {}
+      }
+
+      const payload: Record<string, unknown> = {
+        message: `chore: update site config [auto]`,
+        content: btoa(unescape(encodeURIComponent(JSON.stringify({
+          users: existingUsers,
+          __config__: {
+            websiteTitle: updatedConfig.websiteTitle,
+            logoBase64: updatedConfig.logoBase64,
+            enableTitleAnimation: updatedConfig.enableTitleAnimation,
+            theme: updatedConfig.theme,
+            masterPasswordHash: updatedConfig.masterPasswordHash,
+            whatsappNumbers: updatedConfig.whatsappNumbers,
+            callNumbers: updatedConfig.callNumbers,
+            customFloatingButtons: updatedConfig.customFloatingButtons,
+            fieldsSchema: updatedConfig.fieldsSchema,
+            localizationOverrides: updatedConfig.localizationOverrides,
+            github: updatedConfig.github,
+          }
+        }, null, 2)))),
+        branch: ghBranch || 'main',
+      };
+      if (currentSha) payload.sha = currentSha;
+
+      await fetch(url, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${GH_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      console.warn('GitHub config push failed:', err);
+    }
+  };
+
   // 5B. SITE CUSTOMIZATION HANDLERS
   const handleSaveSiteCustomization = () => {
     // Optimistic UI: immediate update + background GitHub push
@@ -545,7 +616,10 @@ export default function SettingsDashboard({
       document.head.appendChild(link);
     }
 
-    setSiteCustomMessage('تم حفظ تخصيصات الموقع وتطبيقها فورياً على المتصفح!');
+    // Push to GitHub in background (Optimistic UI)
+    pushConfigToGithub(updatedConfig);
+
+    setSiteCustomMessage('✅ تم حفظ تخصيصات الموقع فوراً في المتصفح وجارٍ الرفع إلى جيت هاب...');
     setTimeout(() => setSiteCustomMessage(''), 3500);
   };
 
