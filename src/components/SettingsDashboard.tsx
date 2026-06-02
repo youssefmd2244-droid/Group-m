@@ -136,7 +136,11 @@ export default function SettingsDashboard({
 
   const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const correctPassword = appConfig.masterPasswordHash || '20042007';
+    const correctPassword = appConfig.masterPasswordHash;
+    if (!correctPassword) {
+      setAuthError('لم يتم تعيين رمز المشرف. يرجى التواصل مع مسؤول النظام.');
+      return;
+    }
     if (passwordInput === correctPassword) {
       setIsAuthenticated(true);
 
@@ -526,7 +530,7 @@ export default function SettingsDashboard({
               <Lock className="w-6 h-6 text-white" />
             </div>
             <h3 className="text-lg font-black">جهاز إدخال الهوية للمشرف</h3>
-            <p className="text-[10px] text-slate-300 mt-0.5 uppercase tracking-wider">Default Master Pass: 20042007</p>
+            <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">Admin Access Only · Restricted</p>
           </div>
 
           <form onSubmit={handleAuthSubmit} className="p-6 space-y-4" id="lockscreen-form">
@@ -1086,7 +1090,7 @@ export default function SettingsDashboard({
                     </div>
                     <select
                       value={dbGenderFilter}
-                      onChange={(e: any) => { setDbGenderFilter(e.target.value); setDbCurrentPage(1); }}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { setDbGenderFilter(e.target.value as 'all' | 'Male' | 'Female'); setDbCurrentPage(1); }}
                       className="px-3 py-1.5 border border-slate-200 rounded-xl text-xs outline-none bg-slate-50 text-slate-700"
                     >
                       <option value="all">كل الجنسين</option>
@@ -1284,7 +1288,7 @@ export default function SettingsDashboard({
                       <label className="text-[10px] font-bold text-slate-500">نوع الإدخال</label>
                       <select
                         value={newFieldType}
-                        onChange={(e: any) => setNewFieldType(e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNewFieldType(e.target.value as 'text' | 'number' | 'select' | 'tel' | 'date')}
                         className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 bg-white"
                       >
                         <option value="text">نص عادي / Text</option>
@@ -1505,7 +1509,7 @@ export default function SettingsDashboard({
                       <label className="text-[10px] font-bold text-slate-500">قناة التواصل</label>
                       <select
                         value={contactType}
-                        onChange={(e: any) => setContactType(e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setContactType(e.target.value as 'whatsapp' | 'call')}
                         className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-white text-slate-700 bg-white"
                       >
                         <option value="whatsapp">محادثة واتساب / WhatsApp</option>
