@@ -156,8 +156,8 @@ export default function SettingsDashboard({
       }
       setAuthError('');
       if (onAdminLogin) onAdminLogin();
-      // Force re-render: reload page so all state is fresh after login
-      setTimeout(() => window.location.reload(), 80);
+      // Immediate reload — clears any stale state causing white screen
+      window.location.reload();
     } else {
       setAuthError('الرمز السري المكتوب خاطئ! الرجاء إعادة المحاولة.');
     }
@@ -174,7 +174,14 @@ export default function SettingsDashboard({
   const REPO_OWNER = 'youssefmd2244-droid';
   const REPO_NAME  = 'Group-m';
   const DATA_PATH  = ghDataPath || 'data.json';
-  const GH_TOKEN   = ghToken || (import.meta as any).env?.VITE_GITHUB_TOKEN || '';
+  // Multi-source token resolution: env var → state → localStorage fallback
+  const GH_TOKEN: string = (
+    ghToken ||
+    (import.meta as any).env?.VITE_GITHUB_TOKEN ||
+    (typeof process !== 'undefined' ? (process as any).env?.VITE_GITHUB_TOKEN : '') ||
+    localStorage.getItem('gh_token_fallback') ||
+    ''
+  );
 
   /** Fetch data.json from GitHub and update users list immediately (on boot / refresh) */
   const fetchUsersFromGithub = async () => {
@@ -241,7 +248,7 @@ export default function SettingsDashboard({
   /** Optimistic delete: update UI instantly, then sync to GitHub in background */
   const handleDeleteUserDirect = (id: string, name: string) => {
     if (window.confirm(`هل أنت متأكد من مسح استمارة الطالب "${name}" نهائياً من الشبكة؟`)) {
-      const updated = users.filter((u) => u.id !== id);
+      const updated = (users || []).filter((u) => u.id !== id);
       onUpdateUsers(updated);
       pushUsersToGithub(updated);
     }
@@ -257,7 +264,7 @@ export default function SettingsDashboard({
   // ─────────────────────────────────────────────────────────────────────────
 
   // 1. INBOX DATAGRID & MUTATIONS
-  const filteredUsers = users.filter((u) => {
+  const filteredUsers = (users || []).filter((u) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
     return (
@@ -277,7 +284,7 @@ export default function SettingsDashboard({
 
   const handleDeleteUser = (id: string, name: string) => {
     if (window.confirm(`هل أنت متأكد من مسح استمارة الطالب "${name}" نهائياً من الشبكة؟`)) {
-      const updated = users.filter((u) => u.id !== id);
+      const updated = (users || []).filter((u) => u.id !== id);
       onUpdateUsers(updated);
       pushUsersToGithub(updated);
     }
@@ -293,7 +300,7 @@ export default function SettingsDashboard({
   const handleUpdateUserValue = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-    const updated = users.map((u) => (u.id === editingUser.id ? editingUser : u));
+    const updated = (users || []).map((u) => (u.id === editingUser.id ? editingUser : u));
     onUpdateUsers(updated);
     pushUsersToGithub(updated);
     setEditingUser(null);
@@ -824,7 +831,7 @@ export default function SettingsDashboard({
               id="tab-inbox"
             >
               <Users size={14} />
-              <span>صندوق الوارد ({users.length})</span>
+              <span>صندوق الوارد ({(users || []).length})</span>
             </button>
 
             <button
@@ -924,7 +931,7 @@ export default function SettingsDashboard({
                   <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                     <button
                       onClick={handlePurgeAll}
-                      disabled={users.length === 0}
+                      disabled={(users || []).length === 0}
                       className="px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-rose-100 transition cursor-pointer flex items-center gap-1 shrink-0"
                       id="purge-all-btn"
                     >
@@ -934,7 +941,7 @@ export default function SettingsDashboard({
 
                     <button
                       onClick={() => exportToExcel(users)}
-                      disabled={users.length === 0}
+                      disabled={(users || []).length === 0}
                       className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-indigo-100 transition cursor-pointer flex items-center gap-1 shrink-0"
                       id="export-excel-inbox-btn"
                     >
@@ -944,7 +951,7 @@ export default function SettingsDashboard({
 
                     <button
                       onClick={() => exportToWord(users)}
-                      disabled={users.length === 0}
+                      disabled={(users || []).length === 0}
                       className="px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-blue-100 transition cursor-pointer flex items-center gap-1 shrink-0"
                       id="export-word-inbox-btn"
                     >
@@ -1116,7 +1123,7 @@ export default function SettingsDashboard({
 
             {/* ====== TAB 2: LIVE DATABASE CONSOLE ====== */}
             {activeTab === 'database' && (() => {
-              const dbFiltered = users.filter((u) => {
+              const dbFiltered = (users || []).filter((u) => {
                 const q = dbSearchQuery.toLowerCase().trim();
                 const genderOk = dbGenderFilter === 'all' || u.gender === dbGenderFilter;
                 if (!q) return genderOk;
@@ -1133,11 +1140,11 @@ export default function SettingsDashboard({
               });
               const dbTotalPages = Math.max(1, Math.ceil(dbFiltered.length / dbItemsPerPage));
               const dbSlice = dbFiltered.slice((dbCurrentPage - 1) * dbItemsPerPage, dbCurrentPage * dbItemsPerPage);
-              const maleCount = users.filter(u => u.gender === 'Male').length;
-              const femaleCount = users.filter(u => u.gender === 'Female').length;
-              const withPhotos = users.filter(u => u.personalPhoto || u.idPhoto).length;
+              const maleCount = (users || []).filter(u => u.gender === 'Male').length;
+              const femaleCount = (users || []).filter(u => u.gender === 'Female').length;
+              const withPhotos = (users || []).filter(u => u.personalPhoto || u.idPhoto).length;
               const today = new Date().toDateString();
-              const todayCount = users.filter(u => u.createdAt && new Date(u.createdAt).toDateString() === today).length;
+              const todayCount = (users || []).filter(u => u.createdAt && new Date(u.createdAt).toDateString() === today).length;
 
               return (
                 <div className="space-y-4 text-right" id="tab-database-workspace">
@@ -1158,7 +1165,7 @@ export default function SettingsDashboard({
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" id="db-stats-grid">
                     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-right">
-                      <p className="text-2xl font-black text-slate-800">{users.length}</p>
+                      <p className="text-2xl font-black text-slate-800">{(users || []).length}</p>
                       <p className="text-[10px] text-slate-400 font-bold mt-0.5">إجمالي المسجلين</p>
                     </div>
                     <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-3 text-right">
@@ -1178,7 +1185,7 @@ export default function SettingsDashboard({
                       <p className="text-[10px] text-slate-400 font-bold mt-0.5">يمتلكون صور مرفقة</p>
                     </div>
                     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-right sm:col-span-2">
-                      <p className="text-2xl font-black text-slate-500">{users.length - withPhotos}</p>
+                      <p className="text-2xl font-black text-slate-500">{(users || []).length - withPhotos}</p>
                       <p className="text-[10px] text-slate-400 font-bold mt-0.5">بدون صور</p>
                     </div>
                   </div>
@@ -1186,16 +1193,16 @@ export default function SettingsDashboard({
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3" id="db-export-toolbar">
                     <p className="text-[10px] font-black text-slate-500 mb-2">تصدير قاعدة البيانات الكاملة — All Formats Export:</p>
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={() => exportToCSV(users)} disabled={users.length === 0} className="px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-emerald-100 transition cursor-pointer flex items-center gap-1.5">
+                      <button onClick={() => exportToCSV(users)} disabled={(users || []).length === 0} className="px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-emerald-100 transition cursor-pointer flex items-center gap-1.5">
                         <FileDown size={12} />CSV
                       </button>
-                      <button onClick={() => exportToExcel(users)} disabled={users.length === 0} className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-indigo-100 transition cursor-pointer flex items-center gap-1.5">
+                      <button onClick={() => exportToExcel(users)} disabled={(users || []).length === 0} className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-indigo-100 transition cursor-pointer flex items-center gap-1.5">
                         <FileDown size={12} />Excel
                       </button>
-                      <button onClick={() => exportToWord(users)} disabled={users.length === 0} className="px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-blue-100 transition cursor-pointer flex items-center gap-1.5">
+                      <button onClick={() => exportToWord(users)} disabled={(users || []).length === 0} className="px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-blue-100 transition cursor-pointer flex items-center gap-1.5">
                         <FileDown size={12} />Word
                       </button>
-                      <button onClick={() => exportToImage(users, appConfig.websiteTitle)} disabled={users.length === 0} className="px-3 py-2 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-teal-100 transition cursor-pointer flex items-center gap-1.5">
+                      <button onClick={() => exportToImage(users, appConfig.websiteTitle)} disabled={(users || []).length === 0} className="px-3 py-2 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:opacity-40 rounded-xl text-xs font-bold border border-teal-100 transition cursor-pointer flex items-center gap-1.5">
                         <Printer size={12} />PDF / صورة
                       </button>
                     </div>
@@ -1310,7 +1317,7 @@ export default function SettingsDashboard({
 
                       <div className="flex items-center justify-between border-t border-slate-200 pt-3">
                         <div className="text-[10px] text-slate-500 font-sans">
-                          صفحة {dbCurrentPage} من {dbTotalPages} • إجمالي {dbFiltered.length} سجل (من {users.length})
+                          صفحة {dbCurrentPage} من {dbTotalPages} • إجمالي {dbFiltered.length} سجل (من {(users || []).length})
                         </div>
                         <div className="flex items-center gap-1 select-none">
                           <button onClick={() => setDbCurrentPage(1)} disabled={dbCurrentPage === 1} className="px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 cursor-pointer text-[10px] font-bold">أول</button>
@@ -1956,6 +1963,51 @@ export default function SettingsDashboard({
                     <div className="flex flex-col gap-1 sm:col-span-2">
                       <label className="text-[10px] font-bold text-slate-500">رمز هويتك المعتمد (GitHub Personal Access Token - PAT)</label>
                       <input type="password" placeholder="ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" value={ghToken} onChange={(e) => setGhToken(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none font-mono text-left" style={{ direction: 'ltr' }} />
+                      {/* Emergency LocalStorage fallback token saver */}
+                      <div className="mt-2 p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
+                        <p className="text-[10px] font-black text-amber-700 flex items-center gap-1">
+                          ⚠️ احتياطي طارئ — إذا لم يعمل VITE_GITHUB_TOKEN من Vercel، الصق التوكن هنا لحفظه في LocalStorage:
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            id="ls_token_input"
+                            placeholder="ghp_... (سيُحفظ في LocalStorage كـ Fallback)"
+                            defaultValue={localStorage.getItem('gh_token_fallback') || ''}
+                            className="flex-1 px-3 py-1.5 border border-amber-300 rounded-xl text-xs outline-none font-mono text-left bg-white"
+                            style={{ direction: 'ltr' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById('ls_token_input') as HTMLInputElement;
+                              if (el?.value?.trim()) {
+                                localStorage.setItem('gh_token_fallback', el.value.trim());
+                                setGhToken(el.value.trim());
+                                alert('✅ تم حفظ التوكن في LocalStorage! سيُستخدم تلقائياً عند كل عملية مزامنة.');
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer"
+                          >
+                            حفظ احتياطي
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              localStorage.removeItem('gh_token_fallback');
+                              const el = document.getElementById('ls_token_input') as HTMLInputElement;
+                              if (el) el.value = '';
+                              alert('تم مسح التوكن الاحتياطي من LocalStorage.');
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
+                          >
+                            مسح
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-amber-600">
+                          الأولوية: VITE_GITHUB_TOKEN (Vercel env) ← ghToken (الحقل أعلاه) ← LocalStorage ← فارغ
+                        </p>
+                      </div>
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">اسم حسابك / منظمتك (Repo Owner)</label>
