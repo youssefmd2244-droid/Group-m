@@ -68,18 +68,22 @@ export default function App() {
   const [initPulling, setInitPulling] = useState(false);
 
   // High Density Area state engines
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Restore admin session across page refreshes via sessionStorage (tab-scoped, cleared on tab close)
+  const [isAdmin, setIsAdmin] = useState(() => {
+    return sessionStorage.getItem('group_m_admin_session') === 'active';
+  });
+
   const handleAdminLogout = () => {
     setIsAdmin(false);
-    setUsers([]); // Reset in-memory student registrations state
-    localStorage.removeItem('group_m_users'); // Fully purge local storage database cache
+    setUsers([]);
+    localStorage.removeItem('group_m_users');
+    sessionStorage.removeItem('group_m_admin_session');
   };
 
   // 1. Initial Load of Configurations from LocalStorage & Pull from GitHub
   useEffect(() => {
     // A. Load local configurations first for immediate instant load
     const cachedConfig = localStorage.getItem('group_m_config');
-
     let loadedConfig = DEFAULT_CONFIG;
 
     if (cachedConfig) {
@@ -91,17 +95,23 @@ export default function App() {
       }
     }
 
-    // Load users ONLY if we are authenticated as admin inside a secure validated session.
-    // Page load is always initialized as non-admin visitor to protect privacy.
-    localStorage.removeItem('group_m_users');
-    setUsers([]);
+    // B. Check if a valid admin session is alive in this browser tab
+    const hasActiveAdminSession = sessionStorage.getItem('group_m_admin_session') === 'active';
 
-    // B. Dynamically update document layout properties
+    if (!hasActiveAdminSession) {
+      // Non-admin visitor: wipe any cached user data for privacy protection
+      localStorage.removeItem('group_m_users');
+      setUsers([]);
+    }
+
+    // C. Dynamically update document layout properties
     document.title = loadedConfig.websiteTitle || 'Group m';
 
-    // C. Reconcile background updates from GitHub if active (exclude users pulling for visitors)
+    // D. Pull from GitHub on load.
+    //    If admin session is active → fetch users too (isAdminPull=true).
+    //    If visitor → only fetch config (isAdminPull=false, excludeUsers=true).
     if (loadedConfig.github && loadedConfig.github.isEnabled && loadedConfig.github.token) {
-      triggerGithubInitialPull(loadedConfig.github, false);
+      triggerGithubInitialPull(loadedConfig.github, hasActiveAdminSession);
     }
   }, []);
 
@@ -757,6 +767,8 @@ export default function App() {
           }}
           onAdminLogin={() => {
             setIsAdmin(true);
+            // Persist session for this browser tab so page refresh restores admin state
+            sessionStorage.setItem('group_m_admin_session', 'active');
             triggerGithubInitialPull(appConfig.github, true);
           }}
           onAdminLogout={handleAdminLogout}
