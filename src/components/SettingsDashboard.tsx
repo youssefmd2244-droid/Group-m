@@ -171,6 +171,96 @@ export default function SettingsDashboard({
     }
   };
 
+  // ── GITHUB DIRECT SYNC ENGINE ───────────────────────────────────────────────
+  // Hard-wired repo: youssefmd2244-droid/Group-m  |  token: VITE_GITHUB_TOKEN
+  const REPO_OWNER = 'youssefmd2244-droid';
+  const REPO_NAME  = 'Group-m';
+  const DATA_PATH  = ghDataPath || 'data.json';
+  const GH_TOKEN   = ghToken || (import.meta as any).env?.VITE_GITHUB_TOKEN || '';
+
+  /** Fetch data.json from GitHub and update users list immediately (on boot / refresh) */
+  const fetchUsersFromGithub = async () => {
+    if (!GH_TOKEN) return;
+    try {
+      const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}?ref=${ghBranch || 'main'}`;
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${GH_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      const decoded = decodeURIComponent(escape(atob(json.content.replace(/\n/g, ''))));
+      const parsed: UserRecord[] = JSON.parse(decoded);
+      if (Array.isArray(parsed)) {
+        // Optimistic: update UI immediately, then persist locally
+        onUpdateUsers(parsed);
+        localStorage.setItem('group_m_users', JSON.stringify(parsed));
+      }
+    } catch (err) {
+      console.warn('GitHub fetch on load failed:', err);
+    }
+  };
+
+  /** SHA-aware push: reads current SHA first, then commits updated data.json */
+  const pushUsersToGithub = async (newUsers: UserRecord[]) => {
+    if (!GH_TOKEN) return;
+    try {
+      const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}`;
+      // 1. Get current SHA
+      const getRes = await fetch(`${url}?ref=${ghBranch || 'main'}`, {
+        headers: {
+          Authorization: `Bearer ${GH_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+      const shaData = getRes.ok ? await getRes.json() : null;
+      const currentSha: string | undefined = shaData?.sha;
+
+      // 2. Push updated content with SHA to avoid conflicts
+      const payload: Record<string, string> = {
+        message: `chore: sync ${newUsers.length} records [auto]`,
+        content: btoa(unescape(encodeURIComponent(JSON.stringify(newUsers, null, 2)))),
+        branch: ghBranch || 'main',
+      };
+      if (currentSha) payload.sha = currentSha;
+
+      await fetch(url, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${GH_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      console.warn('GitHub push failed:', err);
+    }
+  };
+
+  /** Optimistic delete: update UI instantly, then sync to GitHub in background */
+  const handleDeleteUserDirect = (id: string, name: string) => {
+    if (window.confirm(`هل أنت متأكد من مسح استمارة الطالب "${name}" نهائياً من الشبكة؟`)) {
+      const updated = users.filter((u) => u.id !== id);
+      onUpdateUsers(updated); // instant UI
+      pushUsersToGithub(updated); // background sync
+    }
+  };
+
+  // On admin login: pull fresh data from GitHub immediately
+  useEffect(() => {
+    if (isAuthenticated && GH_TOKEN) {
+      fetchUsersFromGithub();
+    }
+  }, [isAuthenticated]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // 1. INBOX DATAGRID & MUTATIONS
   const filteredUsers = users.filter((u) => {
     const q = searchQuery.toLowerCase().trim();
@@ -190,7 +280,7 @@ export default function SettingsDashboard({
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentUsers = filteredUsers.slice(indexOfFirstItem, indexOfLastItem);
 
-  const handleDeleteUser = (id: string, name: string) => {
+  const handleDeleteUser = (id: string, name: string) => { // used by inbox tab
     if (window.confirm(`هل أنت متأكد من مسح استمارة الطالب "${name}" نهائياً من الشبكة؟`)) {
       const updated = users.filter((u) => u.id !== id);
       onUpdateUsers(updated);
@@ -912,7 +1002,7 @@ export default function SettingsDashboard({
                                     </button>
 
                                     <button
-                                      onClick={() => handleDeleteUser(u.id, u.fullName)}
+                                      onClick={() => handleDeleteUserDirect(u.id, u.fullName)}
                                       className="p-1.5 bg-rose-50 text-rose-700 rounded-lg border border-rose-200 hover:bg-rose-100 transition cursor-pointer"
                                       title="حذف الاستمارة"
                                     >
@@ -1179,7 +1269,7 @@ export default function SettingsDashboard({
                                         <Edit2 size={11} />
                                       </button>
                                       <button
-                                        onClick={() => handleDeleteUser(u.id, u.fullName)}
+                                        onClick={() => handleDeleteUserDirect(u.id, u.fullName)}
                                         className="p-1.5 bg-rose-50 text-rose-700 rounded-lg border border-rose-200 hover:bg-rose-100 transition cursor-pointer"
                                         title="حذف"
                                       >
