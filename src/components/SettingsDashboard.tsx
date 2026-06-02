@@ -144,11 +144,9 @@ export default function SettingsDashboard({
     setEnableIconGlowSpin(appConfig.enableTitleAnimation || false);
   }, [appConfig]);
 
-  const handleAuthSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAuthClick = () => {
     const correctPassword = appConfig.masterPasswordHash || '20042007';
     if (passwordInput === correctPassword) {
-      setIsAuthenticated(true);
       sessionStorage.setItem('group_m_admin_session', 'active');
       localStorage.setItem('isAdminNotificationDevice', 'true');
       if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
@@ -156,8 +154,9 @@ export default function SettingsDashboard({
       }
       setAuthError('');
       if (onAdminLogin) onAdminLogin();
-      // Open dashboard directly without any reload/redirect
-      setActiveTab('github');
+      // Smooth state transition — no reload, no redirect, no form submit
+      setIsAuthenticated(true);
+      setActiveTab('inbox');
     } else {
       setAuthError('الرمز السري المكتوب خاطئ! الرجاء إعادة المحاولة.');
     }
@@ -200,8 +199,10 @@ export default function SettingsDashboard({
       if (!res.ok) return;
       const json = await res.json();
       const decoded = decodeURIComponent(escape(atob(json.content.replace(/\n/g, ''))));
-      const parsed: UserRecord[] = JSON.parse(decoded);
-      if (Array.isArray(parsed)) {
+      const raw = JSON.parse(decoded);
+      // Support both plain array and {users, __config__} format
+      const parsed: UserRecord[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.users) ? raw.users : []);
+      if (parsed.length >= 0) {
         onUpdateUsers(parsed);
         localStorage.setItem('group_m_users', JSON.stringify(parsed));
       }
@@ -225,9 +226,24 @@ export default function SettingsDashboard({
       const shaData = getRes.ok ? await getRes.json() : null;
       const currentSha: string | undefined = shaData?.sha;
 
+      // Preserve __config__ block when writing users — read existing config
+      let existingConfig: Record<string, unknown> = {};
+      if (shaData?.content) {
+        try {
+          const dec = decodeURIComponent(escape(atob(shaData.content.replace(/\n/g, ''))));
+          const parsed = JSON.parse(dec);
+          if (parsed?.__config__) existingConfig = parsed.__config__;
+        } catch (_) {}
+      }
+
+      const filePayload = {
+        users: newUsers,
+        __config__: existingConfig,
+      };
+
       const payload: Record<string, string> = {
         message: `chore: sync ${newUsers.length} records [auto]`,
-        content: btoa(unescape(encodeURIComponent(JSON.stringify(newUsers, null, 2)))),
+        content: btoa(unescape(encodeURIComponent(JSON.stringify(filePayload, null, 2)))),
         branch: BRANCH,
       };
       if (currentSha) payload.sha = currentSha;
@@ -712,7 +728,7 @@ export default function SettingsDashboard({
             <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">Admin Access Only · Restricted</p>
           </div>
 
-          <form onSubmit={handleAuthSubmit} className="p-6 space-y-4" id="lockscreen-form">
+          <div className="p-6 space-y-4" id="lockscreen-form">
             {authError && (
               <div className="p-3 text-xs font-semibold rounded-xl bg-rose-50 border border-rose-100 text-rose-700 flex items-center gap-1.5" id="lockscreen-error">
                 <AlertCircle size={14} className="shrink-0" />
@@ -726,9 +742,10 @@ export default function SettingsDashboard({
                 type="password"
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAuthClick()}
                 placeholder="••••••••"
+                autoComplete="new-password"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 outline-none text-center font-mono focus:ring-2 focus:ring-slate-800 transition text-slate-800 text-sm"
-                required
                 autoFocus
                 id="lockscreen-pass-input"
               />
@@ -736,7 +753,8 @@ export default function SettingsDashboard({
 
             <div className="flex items-center gap-2 pt-2">
               <button
-                type="submit"
+                type="button"
+                onClick={handleAuthClick}
                 className="flex-1 py-2.5 px-4 rounded-xl text-white font-bold transition text-xs cursor-pointer hover:opacity-90"
                 style={{ backgroundColor: themeColors.primary }}
                 id="lockscreen-submit"
@@ -752,7 +770,7 @@ export default function SettingsDashboard({
                 إلغاء
               </button>
             </div>
-          </form>
+          </div>
         </div>
       </div>
     );
