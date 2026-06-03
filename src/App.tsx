@@ -363,26 +363,31 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    if (isAdmin) {
-      // Admin is authenticated: merge and push live!
-      const updatedUsers = [formattedRecord, ...users];
-      setUsers(updatedUsers);
-      localStorage.setItem('group_m_users', JSON.stringify(updatedUsers));
+    // ── OPTIMISTIC UI: update state + localStorage IMMEDIATELY ──────────────
+    const updatedUsers = [formattedRecord, ...users];
+    setUsers(updatedUsers);
+    localStorage.setItem('group_m_users', JSON.stringify(updatedUsers));
 
+    if (isAdmin) {
+      // Admin path: fire GitHub push in background — never block UI
       if (appConfig.github.isEnabled && appConfig.github.token) {
         setSyncStatus('syncing');
-        try {
-          await syncUsersToGithub(updatedUsers, appConfig.github);
-          setSyncStatus('success');
-        } catch (err) {
-          console.error('Failed to commit addition to GitHub repository:', err);
-          setSyncStatus('error');
-        }
+        syncUsersToGithub(updatedUsers, appConfig.github)
+          .then(() => setSyncStatus('success'))
+          .catch((err) => {
+            console.error('Background GitHub push failed:', err);
+            setSyncStatus('error');
+            // Preserve in pending queue so next sync picks it up
+            try {
+              const pStr = localStorage.getItem('group_m_pending_submissions');
+              const pList: UserRecord[] = pStr ? JSON.parse(pStr) : [];
+              pList.push(formattedRecord);
+              localStorage.setItem('group_m_pending_submissions', JSON.stringify(pList));
+            } catch (_) {}
+          });
       }
     } else {
-      // Normal website visitor: queue locally in pending submissions to protect privacy of other applicants
-      const updatedUsers = [formattedRecord, ...users];
-      setUsers(updatedUsers);
+      // Normal visitor: also already set state above — just queue for later merge
 
       const pendingStr = localStorage.getItem('group_m_pending_submissions');
       let pendingList: UserRecord[] = [];
