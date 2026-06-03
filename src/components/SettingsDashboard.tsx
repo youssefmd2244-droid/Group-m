@@ -132,7 +132,7 @@ export default function SettingsDashboard({
   const [ghOwner, setGhOwner] = useState(appConfig.github.owner || 'youssefmd2244-droid');
   const [ghRepo, setGhRepo] = useState(appConfig.github.repo || 'Group-m');
   const [ghBranch, setGhBranch] = useState(appConfig.github.branch || 'main');
-  const [ghDataPath, setGhDataPath] = useState(appConfig.github.dataPath || 'data.json');
+  const [ghDataPath, setGhDataPath] = useState(appConfig.github.dataPath || 'src/data.json');
   const [ghConfigPath, setGhConfigPath] = useState(appConfig.github.configPath || 'config.json');
   const [ghEnabled, setGhEnabled] = useState(appConfig.github.isEnabled);
   const [ghMessage, setGhMessage] = useState({ text: '', type: 'success' as 'success' | 'error' });
@@ -161,7 +161,7 @@ export default function SettingsDashboard({
     setGhOwner(appConfig.github.owner || 'youssefmd2244-droid');
     setGhRepo(appConfig.github.repo || 'Group-m');
     setGhBranch(appConfig.github.branch || 'main');
-    setGhDataPath(appConfig.github.dataPath || 'data.json');
+    setGhDataPath(appConfig.github.dataPath || 'src/data.json');
     setGhConfigPath(appConfig.github.configPath || 'config.json');
     setGhEnabled(appConfig.github.isEnabled);
     setLogoBase64(appConfig.logoBase64 || '');
@@ -199,7 +199,7 @@ export default function SettingsDashboard({
   // Hardcoded repo defaults — never empty
   const REPO_OWNER = ghOwner?.trim() || 'youssefmd2244-droid';
   const REPO_NAME  = ghRepo?.trim()  || 'Group-m';
-  const DATA_PATH  = ghDataPath?.trim() || 'data.json';
+  const DATA_PATH  = ghDataPath?.trim() || 'src/data.json';
   const BRANCH     = ghBranch?.trim()   || 'main';
   // Multi-source token resolution — priority: state → env → localStorage
   const GH_TOKEN: string = (
@@ -2075,7 +2075,7 @@ export default function SettingsDashboard({
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">مسمى ملف الطلاب النهائي (Users File)</label>
-                      <input type="text" placeholder="data.json" value={ghDataPath} onChange={(e) => setGhDataPath(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono" style={{ direction: 'ltr' }} />
+                      <input type="text" placeholder="src/data.json" value={ghDataPath} onChange={(e) => setGhDataPath(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-left font-mono" style={{ direction: 'ltr' }} />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">عنوان المنفذ الرئيسي للموقع (Custom Port / Website Title)</label>
