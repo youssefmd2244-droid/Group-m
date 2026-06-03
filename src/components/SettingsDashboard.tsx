@@ -22,6 +22,32 @@ interface SettingsDashboardProps {
   onAdminLogout?: () => void;
 }
 
+
+// ── Image compression utility (Canvas resize before base64 storage) ────────
+function compressImageToBase64(file: File, maxDim = 256, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/webp', quality));
+      };
+      img.onerror = reject;
+      img.src = ev.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function SettingsDashboard({
   appConfig,
   users,
@@ -648,22 +674,27 @@ export default function SettingsDashboard({
     setTimeout(() => setSiteCustomMessage(''), 3500);
   };
 
-  const handleFaviconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFaviconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Lazy compress: if file > 200KB, warn. Otherwise read as base64
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
+    try {
+      // Compress to max 128×128 WebP before storing to keep data.json small
+      const base64 = await compressImageToBase64(file, 128, 0.85);
       setSiteFaviconBase64(base64);
-      // Optimistic immediate preview
       const link: HTMLLinkElement = document.querySelector("link[rel*='icon']") || document.createElement('link');
       link.type = 'image/x-icon';
       link.rel = 'shortcut icon';
       link.href = base64;
       document.head.appendChild(link);
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      // Fallback: raw FileReader
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const base64 = ev.target?.result as string;
+        setSiteFaviconBase64(base64);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // 6. GITHUB REST PIPELINE HANDLERS
@@ -1982,7 +2013,7 @@ export default function SettingsDashboard({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-right">
                     <div className="flex flex-col gap-1 sm:col-span-2">
                       <label className="text-[10px] font-bold text-slate-500">رمز هويتك المعتمد (GitHub Personal Access Token - PAT)</label>
-                      <input type="password" placeholder="ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" value={ghToken} onChange={(e) => setGhToken(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none font-mono text-left" style={{ direction: 'ltr' }} />
+                      <input type="password" autoComplete="off" placeholder="ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" value={ghToken} onChange={(e) => setGhToken(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none font-mono text-left" style={{ direction: 'ltr' }} />
                       {/* Emergency LocalStorage fallback token saver */}
                       <div className="mt-2 p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
                         <p className="text-[10px] font-black text-amber-700 flex items-center gap-1">
@@ -1992,6 +2023,7 @@ export default function SettingsDashboard({
                           <input
                             type="password"
                             id="ls_token_input"
+                            autoComplete="off"
                             placeholder="ghp_... (سيُحفظ في LocalStorage كـ Fallback)"
                             defaultValue={localStorage.getItem('gh_token_fallback') || ''}
                             className="flex-1 px-3 py-1.5 border border-amber-300 rounded-xl text-xs outline-none font-mono text-left bg-white"
@@ -2061,13 +2093,18 @@ export default function SettingsDashboard({
                             onChange={(e) => {
                               if (e.target.files && e.target.files[0]) {
                                 const file = e.target.files[0];
-                                const reader = new FileReader();
-                                reader.onload = (event) => {
-                                  const base64 = event.target?.result as string;
+                                compressImageToBase64(file, 128, 0.85).then((base64) => {
                                   setLogoBase64(base64);
                                   onUpdateConfig({ ...appConfig, logoBase64: base64 });
-                                };
-                                reader.readAsDataURL(file);
+                                }).catch(() => {
+                                  const reader = new FileReader();
+                                  reader.onload = (event) => {
+                                    const b64 = event.target?.result as string;
+                                    setLogoBase64(b64);
+                                    onUpdateConfig({ ...appConfig, logoBase64: b64 });
+                                  };
+                                  reader.readAsDataURL(file);
+                                });
                               }
                             }}
                             className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-600 outline-none w-full"
@@ -2155,11 +2192,11 @@ export default function SettingsDashboard({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">كلمة المرور الجديدة</label>
-                      <input type="password" placeholder="••••••••" value={securityPassword} onChange={(e) => setSecurityPassword(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-center font-mono bg-white text-slate-700" />
+                      <input type="password" autoComplete="new-password" placeholder="••••••••" value={securityPassword} onChange={(e) => setSecurityPassword(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-center font-mono bg-white text-slate-700" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500">تأكيد كلمة المرور</label>
-                      <input type="password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-center font-mono bg-white text-slate-700" />
+                      <input type="password" autoComplete="new-password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none text-center font-mono bg-white text-slate-700" />
                     </div>
                   </div>
 
