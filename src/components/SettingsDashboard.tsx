@@ -58,6 +58,8 @@ interface SettingsDashboardProps {
   onClose: () => void;
   onAdminLogin?: () => void;
   onAdminLogout?: () => void;
+  initialData?: any;
+  onReconcile?: () => Promise<void>;
 }
 
 
@@ -145,6 +147,8 @@ export default function SettingsDashboard({
   onClose,
   onAdminLogin,
   onAdminLogout,
+  initialData,
+  onReconcile,
 }: SettingsDashboardProps) {
   // Authentication Gateway State
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
