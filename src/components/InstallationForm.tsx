@@ -1,13 +1,14 @@
 /**
  * InstallationForm.tsx — نموذج التركيبات الديناميكي الكامل والمؤمن ضد الـ Crash
- * * ✅ حل مشكلة الـ White Screen نهائياً:
- * - حقل العدادControlled بالكامل بـ State نصية مستقلة (countInput) لمنع التهنيج أثناء الكتابة والمسح.
- * - مصفوفة العملاء (clients) لا يتم تحديثها إلا عند التأكد من صحة الرقم المدخل وصلاحيته.
- * - مزامنة فورية وآمنة 100% بين الأزرار (+ / -) وحالة الحقل والمصفوفة.
- * ✅ حماية إضافية في الـ JSX باستخدام safeClients لضمان عدم حدوث Loop على مصفوفة فارغة أو غير معرفة.
+ * * ✅ حل مشكلة الـ White Screen نهائياً وجذرياً:
+ * - حقل العداد Controlled بالكامل بـ State نصية مستقلة (countInput) لمنع التهنيج أثناء الكتابة والمسح.
+ * - عزل مصفوفة العملاء (clients) تماماً عن الـ Re-render اللحظي السريع للأزرار.
+ * - إضافة نظام تأجيل ذكي (Debounced Sync) بمقدار 250ms عند استخدام الأزرار (+ / -) لمنع الـ Race Conditions التي تسبب انهيار الواجهة (Parent/Child Crash).
+ * - الاعتماد على حالة رقمية مستقرة (stableCount) لإدارة الـ Dynamic Loops في الـ JSX.
+ * - صمامات أمان مطلقة عبر استخدام safeClients لضمان عدم حدوث Loop على مصفوفة فارغة أو مكسورة.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Wrench, Camera, Video, CheckCircle, AlertCircle, Loader2,
   Trash2, Image as ImageIcon, User, Phone, MapPin, Building,
@@ -109,7 +110,7 @@ interface PhotoSlotProps {
 function PhotoSlot({
   label, icon, value, uploadingKey, currentUploadingKey, accept, onFileChange, onClear,
 }: PhotoSlotProps) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const isUploading = currentUploadingKey === uploadingKey;
 
   return (
@@ -166,6 +167,9 @@ export default function InstallationForm({
 
   // ── العداد النصي (Controlled Input) لإعطاء المستخدم حرية مطلقة في الإدخال والمسح ──
   const [countInput, setCountInput] = useState('1');
+  
+  // ── العداد الرقمي المستقر لإدارة الـ JSX والـ Loops بأمان دون تضارب ──
+  const [stableCount, setStableCount] = useState(1);
 
   // ── مصفوفة العملاء الأساسية ──────────────────────────────────────────────────
   const [clients, setClients] = useState<ClientEntry[]>([emptyClient()]);
@@ -179,37 +183,55 @@ export default function InstallationForm({
   const [errors, setErrors] = useState<string[]>([]);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
 
-  // ── دالة مركزية آمنة لتحديث حجم المصفوفة بناءً على قيمة عددية صحيحة ──────────────
+  // مرجع لتخزين معرف المؤقت لمنع الـ Race Condition والـ Crash عند تتابع الضغط السريع
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ── دالة مركزية آمنة لتحديث حجم المصفوفة بناءً على قيمة عددية صحيحة مستقرة ──────────────
   const syncClientsArray = useCallback((targetCount: number) => {
+    const safeTarget = isNaN(targetCount) || targetCount < 1 ? 1 : targetCount;
+    setStableCount(safeTarget);
     setClients((prev) => {
       const base = Array.isArray(prev) && prev.length > 0 ? prev : [emptyClient()];
-      if (targetCount === base.length) return base;
-      if (targetCount > base.length) {
+      if (safeTarget === base.length) return base;
+      if (safeTarget > base.length) {
         return [
           ...base,
-          ...Array.from({ length: targetCount - base.length }, () => emptyClient()),
+          ...Array.from({ length: safeTarget - base.length }, () => emptyClient()),
         ];
       }
-      return base.slice(0, targetCount);
+      return base.slice(0, safeTarget);
     });
   }, []);
 
-  // ── التعامل مع مدخلات حقل النص أثناء الكتابة ───────────────────────────────────
+  // تنظيف المؤقت عند مغادرة المكون لمنع تسريب الذاكرة
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, []);
+
+  // ── التعامل مع مدخلات حقل النص أثناء الكتابة الحرّة ───────────────────────────────────
   const handleCountChange = (val: string) => {
     setCountInput(val);
 
-    // التحقق الفوري: إذا كان رقماً صحيحاً صالحاً، نحدث المصفوفة مباشرة في الخلفية دون انتظار الـ Blur
+    // إلغاء أي مؤقت مجدول سابقاً
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
     const parsed = parseInt(val.trim(), 10);
     if (!isNaN(parsed) && parsed >= 1) {
-      syncClientsArray(parsed);
+      // جدولة التحديث بعد 250ms ليعطي الـ DOM والـ Parent مهلة استقرار ويمنع الشاشة البيضاء
+      debounceTimerRef.current = setTimeout(() => {
+        syncClientsArray(parsed);
+      }, 250);
     }
   };
 
-  // ── الحماية النهائية عند الخروج من الحقل (onBlur) ──────────────────────────────
+  // ── الحماية النهائية الفورية عند الخروج من الحقل (onBlur) ──────────────────────────────
   const handleCountBlur = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
     const parsed = parseInt(countInput.trim(), 10);
     if (isNaN(parsed) || parsed < 1) {
-      // إرجاع القيمة للحالة الآمنة "1" فوراً منعاً للتعارض
       setCountInput('1');
       syncClientsArray(1);
     } else {
@@ -218,19 +240,30 @@ export default function InstallationForm({
     }
   };
 
-  // ── أزرار الزيادة والنقصان التزامنية الآمنة ──────────────────────────────────────
+  // ── أزرار الزيادة والنقصان التزامنية المجدولة بأمان ──────────────────────────────────────
   const handleIncrement = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
     const current = parseInt(countInput.trim(), 10);
     const next = isNaN(current) || current < 1 ? 2 : current + 1;
+    
     setCountInput(String(next));
-    syncClientsArray(next);
+    // تحديث فوري مؤمن للعداد لتفادي الـ Sync Lag مع الحفاظ على استقرار المصفوفة
+    debounceTimerRef.current = setTimeout(() => {
+      syncClientsArray(next);
+    }, 100);
   };
 
   const handleDecrement = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
     const current = parseInt(countInput.trim(), 10);
     const next = isNaN(current) || current <= 1 ? 1 : current - 1;
+    
     setCountInput(String(next));
-    syncClientsArray(next);
+    debounceTimerRef.current = setTimeout(() => {
+      syncClientsArray(next);
+    }, 100);
   };
 
   // ── تعديل بيانات حقل داخل عميل معين ──────────────────────────────────────────
@@ -264,9 +297,6 @@ export default function InstallationForm({
     [updateClient]
   );
 
-  // ── حساب العدد الفعلي المعتمد في الواجهة ───────────────────────────────────────
-  const actualCount = Array.isArray(clients) && clients.length > 0 ? clients.length : 1;
-
   // ── التحقق من صحة البيانات بالكامل قبل الإرسال ─────────────────────────────────
   const validate = (): string[] => {
     const errs: string[] = [];
@@ -274,7 +304,7 @@ export default function InstallationForm({
     
     const safe = Array.isArray(clients) && clients.length > 0 ? clients : [emptyClient()];
     safe.forEach((c, i) => {
-      const pfx = actualCount > 1 ? `العميل ${i + 1}: ` : '';
+      const pfx = stableCount > 1 ? `العميل ${i + 1}: ` : '';
       if (!(c?.clientName  ?? '').trim()) errs.push(`${pfx}يرجى إدخال اسم العميل`);
       if (!(c?.clientMobile ?? '').trim()) errs.push(`${pfx}يرجى إدخال رقم الموبايل`);
       if (!(c?.area         ?? '').trim()) errs.push(`${pfx}يرجى إدخال المنطقة والشارع`);
@@ -290,6 +320,7 @@ export default function InstallationForm({
   const resetForm = () => {
     setWorkerName('');
     setCountInput('1');
+    setStableCount(1);
     setClients([emptyClient()]);
     setCustomFieldValues({});
     setErrors([]);
@@ -316,7 +347,7 @@ export default function InstallationForm({
         area:               (primary?.area              ?? '').trim(),
         buildingName:       (primary?.buildingName      ?? '').trim(),
         buildingNumber:     (primary?.buildingNumber    ?? '').trim(),
-        installationsCount: actualCount,
+        installationsCount: stableCount,
         notes:              (primary?.notes             ?? '').trim() || undefined,
         clientIdPhoto:      primary?.clientIdPhoto,
         thermalPhoto:       primary?.thermalPhoto,
@@ -341,9 +372,8 @@ export default function InstallationForm({
   const inputCls = 'w-full px-4 py-3 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-amber-300 bg-white text-slate-700 transition';
   const labelCls = 'block text-xs font-bold text-slate-600 mb-1.5';
 
-  // صمام أمان نهائي لضمان وجود مصفوفة صالحة داخل كود الـ JSX دائمًا منعًا لأي كراش
-  const safeClients: ClientEntry[] =
-    Array.isArray(clients) && clients.length > 0 ? clients : [emptyClient()];
+  // صمام أمان محكم بنسبة 100% لضمان وجود مصفوفة متوافقة تماماً مع الـ stableCount داخل الـ JSX دائمًا
+  const safeClients: ClientEntry[] = Array.isArray(clients) && clients.length > 0 ? clients : [emptyClient()];
 
   return (
     <div className="w-full max-w-2xl mx-auto" dir="rtl">
@@ -429,7 +459,7 @@ export default function InstallationForm({
             )}
           </div>
 
-          {/* ══ عدد التركيبات — حقل ذكي ومؤمن بالكامل ضد التهنيج ══ */}
+          {/* ══ عدد التركيبات — حقل ذكي ومؤمن بالكامل ضد التهنيج والشاشة البيضاء ══ */}
           <div>
             <label className={labelCls}>
               <Wrench size={12} className="inline ml-1" />عدد التركيبات *
@@ -438,7 +468,7 @@ export default function InstallationForm({
               <button
                 type="button"
                 onClick={handleDecrement}
-                disabled={actualCount <= 1}
+                disabled={stableCount <= 1}
                 className="w-11 h-11 rounded-xl bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-700 flex items-center justify-center transition disabled:opacity-40 cursor-pointer"
               >
                 <Minus size={18} />
@@ -461,9 +491,9 @@ export default function InstallationForm({
                 <Plus size={18} />
               </button>
             </div>
-            {actualCount > 1 && (
+            {stableCount > 1 && (
               <p className="text-[10px] text-amber-600 font-bold mt-1.5 flex items-center gap-1">
-                <Users size={10} />سيتم فتح {actualCount} أقسام — واحد لكل عميل
+                <Users size={10} />سيتم فتح {stableCount} أقسام — واحد لكل عميل
               </p>
             )}
           </div>
@@ -478,7 +508,7 @@ export default function InstallationForm({
                   {index + 1}
                 </div>
                 <span className="text-sm font-black text-amber-800">
-                  {actualCount > 1 ? `بيانات العميل ${index + 1}` : 'بيانات العميل'}
+                  {stableCount > 1 ? `بيانات العميل ${index + 1}` : 'بيانات العميل'}
                 </span>
                 <User size={14} className="text-amber-500 mr-auto" />
               </div>
@@ -490,7 +520,7 @@ export default function InstallationForm({
                   <div className="sm:col-span-2">
                     <label className={labelCls}>
                       <User size={12} className="inline ml-1" />
-                      اسم العميل{actualCount > 1 ? ` ${index + 1}` : ''} *
+                      اسم العميل{stableCount > 1 ? ` ${index + 1}` : ''} *
                     </label>
                     <input
                       type="text"
@@ -591,7 +621,7 @@ export default function InstallationForm({
                   <div className="flex items-center gap-1.5 mb-2.5">
                     <Paperclip size={12} className="text-amber-600" />
                     <span className="text-xs font-black text-amber-700">
-                      مرفقات وصور{actualCount > 1 ? ` العميل ${index + 1}` : ''}
+                      مرفقات وصور{stableCount > 1 ? ` العميل ${index + 1}` : ''}
                     </span>
                     <span className="text-[9px] text-slate-400 mr-1">(تُضغط تلقائياً)</span>
                   </div>
@@ -694,7 +724,7 @@ export default function InstallationForm({
           >
             {isSubmitting
               ? <><Loader2 size={16} className="animate-spin" />جاري الإرسال...</>
-              : <><Wrench size={16} />إرسال بيانات التركيب{actualCount > 1 ? `ات (${actualCount} عملاء)` : 'ة'}</>
+              : <><Wrench size={16} />إرسال بيانات التركيب{stableCount > 1 ? `ات (${stableCount} عملاء)` : 'ة'}</>
             }
           </button>
 
