@@ -1,11 +1,12 @@
 /**
  * InstallationForm.tsx — نموذج التركيبات الديناميكي الكامل
  *
- * ✅ إصلاح Validation اسم العامل: يقرأ من حقل النص مباشرة بدون أي تعقيد
- * ✅ Dynamic Form Loop: كل زيادة في "عدد التركيبات" تفتح قسم عميل كامل + مرفقات
- * ✅ كل عميل له: اسم، منطقة وشارع، رقم عمارة، اسم عمارة، أرضي، موبايل، ملاحظة
- * ✅ كل عميل له قسم مرفقاته الخاص: بطاقة، بوكس، حرارة، بوكس رئيسي، فيديو
- * ✅ بدون <form> — onClick فقط لتجنب الشاشة البيضاء
+ * ✅ إصلاح Validation اسم العامل: يقرأ من workerName مباشرة بدون تضارب
+ * ✅ إصلاح White Screen: فصل countInputValue (نص حر) عن clients[] (مصفوفة مؤمّنة)
+ * ✅ تأمين المدخلات: NaN أو فارغ أو أقل من 1 → لا يُغيَّر clients[] حتى تكتمل القيمة
+ * ✅ Array.from لتوليد الحقول الجديدة دفعة واحدة كـ Objects مهيّأة بالكامل
+ * ✅ Optional Chaining في كل .map و كل وصول لخصائص client داخل JSX
+ * ✅ بدون <form> — onClick فقط لتجنب إعادة تحميل الصفحة
  * ✅ ضغط الصور تلقائياً بـ Canvas
  */
 
@@ -86,7 +87,6 @@ function compressVideo(file: File): Promise<string> {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/** بيانات عميل واحد (كل مقعد في الـ loop) */
 interface ClientEntry {
   clientName: string;
   area: string;
@@ -95,14 +95,14 @@ interface ClientEntry {
   clientLandline: string;
   clientMobile: string;
   notes: string;
-  // مرفقات
-  clientIdPhoto?: string;
-  boxPhoto?: string;
-  thermalPhoto?: string;
-  mainBoxPhoto?: string;
-  installationVideo?: string;
+  clientIdPhoto: string | undefined;
+  boxPhoto: string | undefined;
+  thermalPhoto: string | undefined;
+  mainBoxPhoto: string | undefined;
+  installationVideo: string | undefined;
 }
 
+// ✅ كل حقل له قيمة افتراضية صريحة — لا يوجد undefined مخفي يسبب crash
 function emptyClient(): ClientEntry {
   return {
     clientName: '',
@@ -132,12 +132,12 @@ interface InstallationFormProps {
   syncStatus?: 'idle' | 'syncing' | 'success' | 'error';
 }
 
-// ─── PhotoSlot Component (مستقل لكل عميل وكل slot) ──────────────────────────
+// ─── PhotoSlot Component ──────────────────────────────────────────────────────
 
 interface PhotoSlotProps {
   label: string;
   icon: React.ReactNode;
-  value?: string;
+  value: string | undefined;
   uploadingKey: string;
   currentUploadingKey: string | null;
   accept: string;
@@ -171,7 +171,7 @@ function PhotoSlot({
           e.target.value = '';
         }}
       />
-      {value ? (
+      {value != null && value !== '' ? (
         <div className="relative rounded-xl overflow-hidden border border-amber-200 bg-amber-50">
           {value.startsWith('data:video') ? (
             <div className="flex items-center justify-center h-20 bg-slate-800 text-white text-xs gap-2">
@@ -225,55 +225,117 @@ export default function InstallationForm({
   onSubmit,
   syncStatus = 'idle',
 }: InstallationFormProps) {
-  // ── اسم العامل: حقل نص حر واحد فقط — القائمة تملأه عند الاختيار ──────────
-  // ✅ Validation يقرأ workerName مباشرة بدون أي تضارب أو state إضافي
+
+  // ── اسم العامل ─────────────────────────────────────────────────────────────
+  // ✅ حقل نص حر واحد فقط — Validation يقرأ workerName.trim() مباشرة
   const [workerName, setWorkerName] = useState('');
   const [showWorkerDropdown, setShowWorkerDropdown] = useState(false);
 
-  // ── عدد التركيبات + قائمة العملاء الديناميكية ─────────────────────────────
-  const [installationsCount, setInstallationsCount] = useState(1);
+  // ──────────────────────────────────────────────────────────────────────────
+  // ✅ FIX #1 — فصل state الـ input النصي عن state المصفوفة الفعلية
+  //
+  // countInputValue: ما يراه المستخدم في حقل الـ input (قد يكون '' أثناء الكتابة)
+  // clients[]:       المصفوفة الفعلية المضمونة دائماً بعدد >= 1
+  //
+  // هذا الفصل هو جوهر الإصلاح: لا يحدث أبداً أن clients تصبح مصفوفة فارغة
+  // بسبب قيمة input مؤقتة فارغة أو NaN
+  // ──────────────────────────────────────────────────────────────────────────
+  const [countInputValue, setCountInputValue] = useState('1');
   const [clients, setClients] = useState<ClientEntry[]>([emptyClient()]);
 
   // ── حقول إضافية من الإعدادات ──────────────────────────────────────────────
-  const [customFieldValues, setCustomFieldValues] = useState<{
-    [k: string]: string;
-  }>({});
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
 
   // ── UI State ───────────────────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitResult, setSubmitResult] = useState<
-    'success' | 'error' | null
-  >(null);
+  const [submitResult, setSubmitResult] = useState<'success' | 'error' | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
 
-  // ── تعديل عدد التركيبات وتوسيع/تقليص قائمة العملاء ──────────────────────
-  const handleCountChange = useCallback(
-    (newCount: number) => {
-      const count = Math.max(1, newCount);
-      setInstallationsCount(count);
-      setClients((prev) => {
-        if (count > prev.length) {
-          // أضف عملاء جدد فارغين
-          const extras = Array.from(
-            { length: count - prev.length },
-            () => emptyClient()
-          );
-          return [...prev, ...extras];
-        } else if (count < prev.length) {
-          // احذف العملاء الزيادة من الآخر
-          return prev.slice(0, count);
-        }
-        return prev;
-      });
-    },
-    []
-  );
+  // ──────────────────────────────────────────────────────────────────────────
+  // ✅ FIX #2 — applyCount: الدالة الوحيدة التي تُعدِّل clients[]
+  //
+  // تُستدعى فقط بعد التحقق من أن القيمة رقم صحيح >= 1
+  // تستخدم Array.from لتوليد جميع الحقول الجديدة دفعة واحدة كـ Objects مهيّأة
+  // ──────────────────────────────────────────────────────────────────────────
+  const applyCount = useCallback((count: number) => {
+    // تأمين مزدوج: NaN أو أقل من 1 → 1
+    const safeCount = isNaN(count) || count < 1 ? 1 : Math.floor(count);
+
+    setClients((prev) => {
+      const prevSafe = Array.isArray(prev) && prev.length > 0 ? prev : [emptyClient()];
+
+      if (safeCount === prevSafe.length) {
+        return prevSafe;
+      }
+
+      if (safeCount > prevSafe.length) {
+        // ✅ Array.from يُنشئ جميع الكائنات الجديدة دفعة واحدة — كل واحد مهيّأ بالكامل
+        const extras = Array.from(
+          { length: safeCount - prevSafe.length },
+          () => emptyClient()
+        );
+        return [...prevSafe, ...extras];
+      }
+
+      // safeCount < prevSafe.length → احذف من الآخر
+      return prevSafe.slice(0, safeCount);
+    });
+  }, []);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ✅ FIX #3 — handleCountInputChange: يُعدِّل countInputValue فقط (النص)
+  //             ويستدعي applyCount فقط عندما تكون القيمة رقماً صحيحاً >= 1
+  //
+  // هذا يمنع الـ crash الناتج عن مسح "1" وكتابة "2" — خلال الفترة الانتقالية
+  // يكون countInputValue = '' لكن clients لا تتغير حتى تكتمل القيمة
+  // ──────────────────────────────────────────────────────────────────────────
+  const handleCountInputChange = useCallback((raw: string) => {
+    // دائماً حدِّث النص في الـ input كما كتبه المستخدم (حتى لو فارغ)
+    setCountInputValue(raw);
+
+    const parsed = parseInt(raw, 10);
+
+    // حدِّث clients[] فقط إذا كانت القيمة رقماً صحيحاً >= 1
+    if (!isNaN(parsed) && parsed >= 1) {
+      setCountInputValue(String(parsed)); // نظِّف النص (إزالة أصفار بادئة مثلاً)
+      applyCount(parsed);
+    }
+    // إذا كانت فارغة أو NaN أو 0، لا تلمس clients[] — فقط انتظر
+  }, [applyCount]);
+
+  // ── أزرار + و - ───────────────────────────────────────────────────────────
+  const handleIncrement = useCallback(() => {
+    const current = parseInt(countInputValue, 10);
+    const next = isNaN(current) || current < 1 ? 2 : current + 1;
+    setCountInputValue(String(next));
+    applyCount(next);
+  }, [countInputValue, applyCount]);
+
+  const handleDecrement = useCallback(() => {
+    const current = parseInt(countInputValue, 10);
+    const next = isNaN(current) || current <= 1 ? 1 : current - 1;
+    setCountInputValue(String(next));
+    applyCount(next);
+  }, [countInputValue, applyCount]);
+
+  // ── onBlur: عند مغادرة الحقل، تأكد أن القيمة صحيحة وإلا أعد إلى 1 ────────
+  const handleCountBlur = useCallback(() => {
+    const parsed = parseInt(countInputValue, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      setCountInputValue('1');
+      applyCount(1);
+    } else {
+      setCountInputValue(String(parsed));
+      applyCount(parsed);
+    }
+  }, [countInputValue, applyCount]);
 
   // ── تعديل حقل معين لعميل معين ──────────────────────────────────────────────
   const updateClient = useCallback(
     (index: number, field: keyof ClientEntry, value: string | undefined) => {
       setClients((prev) => {
+        if (!Array.isArray(prev) || index < 0 || index >= prev.length) return prev;
         const updated = [...prev];
         updated[index] = { ...updated[index], [field]: value };
         return updated;
@@ -308,8 +370,11 @@ export default function InstallationForm({
     [updateClient]
   );
 
+  // ── الـ installationsCount الفعلي (مشتق من clients.length) ───────────────
+  // ✅ هذا يضمن دائماً أن العدد المعروض في الـ UI متسق مع المصفوفة الفعلية
+  const actualCount = Array.isArray(clients) ? clients.length : 1;
+
   // ── Validation ─────────────────────────────────────────────────────────────
-  // ✅ يقرأ workerName مباشرة من state — لا يوجد أي تعقيد أو تضارب
   const validate = (): string[] => {
     const errs: string[] = [];
 
@@ -317,22 +382,22 @@ export default function InstallationForm({
       errs.push('يرجى كتابة اسم العامل');
     }
 
-    clients.forEach((client, i) => {
-      const prefix =
-        installationsCount > 1 ? `العميل ${i + 1}: ` : '';
-      if (!client.clientName.trim()) {
+    const safeClients = Array.isArray(clients) ? clients : [emptyClient()];
+    safeClients.forEach((client, i) => {
+      const prefix = actualCount > 1 ? `العميل ${i + 1}: ` : '';
+      if (!(client?.clientName ?? '').trim()) {
         errs.push(`${prefix}يرجى إدخال اسم العميل`);
       }
-      if (!client.clientMobile.trim()) {
+      if (!(client?.clientMobile ?? '').trim()) {
         errs.push(`${prefix}يرجى إدخال رقم الموبايل`);
       }
-      if (!client.area.trim()) {
+      if (!(client?.area ?? '').trim()) {
         errs.push(`${prefix}يرجى إدخال المنطقة والشارع`);
       }
     });
 
-    extraFields
-      .filter((f) => f.required && f.isEnabled)
+    (extraFields ?? [])
+      .filter((f) => f?.required && f?.isEnabled)
       .forEach((f) => {
         if (!customFieldValues[f.name]?.trim()) {
           errs.push(`الحقل "${f.labelAr}" إجباري`);
@@ -345,7 +410,7 @@ export default function InstallationForm({
   // ── Reset ──────────────────────────────────────────────────────────────────
   const resetForm = () => {
     setWorkerName('');
-    setInstallationsCount(1);
+    setCountInputValue('1');
     setClients([emptyClient()]);
     setCustomFieldValues({});
     setErrors([]);
@@ -359,38 +424,34 @@ export default function InstallationForm({
 
     setIsSubmitting(true);
     try {
-      // نأخذ بيانات العميل الأول كبيانات رئيسية في الـ record
-      // والعملاء الإضافيين يُحفظون في customFields كـ JSON
-      const primaryClient = clients[0];
-      const additionalClients =
-        clients.length > 1 ? clients.slice(1) : [];
+      const safeClients = Array.isArray(clients) && clients.length > 0
+        ? clients
+        : [emptyClient()];
 
-      const customFields: { [k: string]: string } = {
-        ...customFieldValues,
-      };
+      const primaryClient = safeClients[0];
+      const additionalClients = safeClients.length > 1 ? safeClients.slice(1) : [];
 
-      // حفظ العملاء الإضافيين في customFields
+      const customFields: Record<string, string> = { ...customFieldValues };
+
       if (additionalClients.length > 0) {
-        customFields['__additionalClients'] = JSON.stringify(
-          additionalClients
-        );
+        customFields['__additionalClients'] = JSON.stringify(additionalClients);
       }
 
       await onSubmit({
-        workerName: workerName.trim(),
-        clientName: primaryClient.clientName.trim(),
-        clientMobile: primaryClient.clientMobile.trim(),
-        clientLandline: primaryClient.clientLandline.trim(),
-        area: primaryClient.area.trim(),
-        buildingName: primaryClient.buildingName.trim(),
-        buildingNumber: primaryClient.buildingNumber.trim(),
-        installationsCount,
-        notes: primaryClient.notes.trim() || undefined,
-        clientIdPhoto: primaryClient.clientIdPhoto,
-        thermalPhoto: primaryClient.thermalPhoto,
-        boxPhoto: primaryClient.boxPhoto,
-        mainBoxPhoto: primaryClient.mainBoxPhoto,
-        installationVideo: primaryClient.installationVideo,
+        workerName:        workerName.trim(),
+        clientName:        (primaryClient?.clientName ?? '').trim(),
+        clientMobile:      (primaryClient?.clientMobile ?? '').trim(),
+        clientLandline:    (primaryClient?.clientLandline ?? '').trim(),
+        area:              (primaryClient?.area ?? '').trim(),
+        buildingName:      (primaryClient?.buildingName ?? '').trim(),
+        buildingNumber:    (primaryClient?.buildingNumber ?? '').trim(),
+        installationsCount: actualCount,
+        notes:             (primaryClient?.notes ?? '').trim() || undefined,
+        clientIdPhoto:     primaryClient?.clientIdPhoto,
+        thermalPhoto:      primaryClient?.thermalPhoto,
+        boxPhoto:          primaryClient?.boxPhoto,
+        mainBoxPhoto:      primaryClient?.mainBoxPhoto,
+        installationVideo: primaryClient?.installationVideo,
         customFields,
       });
 
@@ -410,6 +471,11 @@ export default function InstallationForm({
     'w-full px-4 py-3 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-amber-300 bg-white text-slate-700 transition';
   const labelCls = 'block text-xs font-bold text-slate-600 mb-1.5';
 
+  // ✅ FIX #4 — safeClients: دائماً مصفوفة آمنة لاستخدامها في الـ JSX
+  // تمنع أي crash ناتج عن clients كونها undefined أو فارغة لحظياً
+  const safeClients: ClientEntry[] =
+    Array.isArray(clients) && clients.length > 0 ? clients : [emptyClient()];
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -419,9 +485,7 @@ export default function InstallationForm({
         {/* ── Header ── */}
         <div
           className="p-6 text-white"
-          style={{
-            background: 'linear-gradient(135deg, #d97706, #b45309)',
-          }}
+          style={{ background: 'linear-gradient(135deg, #d97706, #b45309)' }}
         >
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center">
@@ -464,15 +528,13 @@ export default function InstallationForm({
         <div className="p-6 space-y-5">
 
           {/* ══ اسم العامل ══
-               ✅ حقل نص حر واحد — لا يوجد useCustomWorker ولا تضارب بين states
-               ✅ Validation يقرأ workerName.trim() مباشرة بدون أي تعقيد */}
+               ✅ Validation يقرأ workerName.trim() مباشرة — لا تضارب */}
           <div>
             <label className={labelCls}>
               <User size={12} className="inline ml-1" />
               اسم العامل *
             </label>
             <div className="relative">
-              {/* حقل الكتابة الحرة — الـ Validation يقرأ منه مباشرة */}
               <input
                 type="text"
                 value={workerName}
@@ -484,8 +546,6 @@ export default function InstallationForm({
                 className={inputCls}
                 autoComplete="off"
               />
-
-              {/* زر القائمة — يظهر فقط لو في عمال مسجلين */}
               {workers.length > 0 && (
                 <button
                   type="button"
@@ -503,8 +563,6 @@ export default function InstallationForm({
                   />
                 </button>
               )}
-
-              {/* Dropdown — اختيار عامل سابق يملأ حقل النص فقط */}
               {showWorkerDropdown && workers.length > 0 && (
                 <>
                   <div
@@ -533,14 +591,14 @@ export default function InstallationForm({
             </div>
             {workers.length > 0 && (
               <p className="text-[10px] text-slate-400 mt-1">
-                اضغط{' '}
-                <ChevronDown size={10} className="inline" /> لاختيار
+                اضغط <ChevronDown size={10} className="inline" /> لاختيار
                 عامل سابق، أو اكتب اسماً جديداً مباشرة
               </p>
             )}
           </div>
 
-          {/* ══ عدد التركيبات — مع أزرار + و - ══ */}
+          {/* ══ عدد التركيبات ══
+               ✅ countInputValue منفصل عن clients[] — لا crash أثناء الكتابة */}
           <div>
             <label className={labelCls}>
               <Wrench size={12} className="inline ml-1" />
@@ -549,39 +607,39 @@ export default function InstallationForm({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => handleCountChange(installationsCount - 1)}
-                disabled={installationsCount <= 1}
+                onClick={handleDecrement}
+                disabled={actualCount <= 1}
                 className="w-11 h-11 rounded-xl bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-700 flex items-center justify-center transition disabled:opacity-40 cursor-pointer"
               >
                 <Minus size={18} />
               </button>
               <input
-                type="number"
-                value={installationsCount}
-                onChange={(e) =>
-                  handleCountChange(Number(e.target.value))
-                }
-                min={1}
+                type="text"
+                inputMode="numeric"
+                value={countInputValue}
+                onChange={(e) => handleCountInputChange(e.target.value)}
+                onBlur={handleCountBlur}
                 className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-amber-300 bg-white text-amber-700 font-black text-center text-lg transition"
               />
               <button
                 type="button"
-                onClick={() => handleCountChange(installationsCount + 1)}
+                onClick={handleIncrement}
                 className="w-11 h-11 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-700 flex items-center justify-center transition cursor-pointer"
               >
                 <Plus size={18} />
               </button>
             </div>
-            {installationsCount > 1 && (
+            {actualCount > 1 && (
               <p className="text-[10px] text-amber-600 font-bold mt-1.5 flex items-center gap-1">
                 <Users size={10} />
-                سيتم فتح {installationsCount} أقسام — واحد لكل عميل
+                سيتم فتح {actualCount} أقسام — واحد لكل عميل
               </p>
             )}
           </div>
 
-          {/* ══ Dynamic Loop: قسم لكل عميل ══ */}
-          {clients.map((client, index) => (
+          {/* ══ Dynamic Loop: قسم لكل عميل ══
+               ✅ safeClients مضمونة دائماً — Optional Chaining في كل وصول */}
+          {safeClients.map((client, index) => (
             <div
               key={index}
               className="border border-amber-200 rounded-2xl overflow-hidden bg-amber-50/30"
@@ -592,7 +650,7 @@ export default function InstallationForm({
                   {index + 1}
                 </div>
                 <span className="text-sm font-black text-amber-800">
-                  {installationsCount > 1
+                  {actualCount > 1
                     ? `بيانات العميل ${index + 1}`
                     : 'بيانات العميل'}
                 </span>
@@ -600,18 +658,19 @@ export default function InstallationForm({
               </div>
 
               <div className="p-4 space-y-3">
+
                 {/* ── حقول العميل ── */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
-                  {/* اسم العميل الجديد */}
+                  {/* اسم العميل */}
                   <div className="sm:col-span-2">
                     <label className={labelCls}>
                       <User size={12} className="inline ml-1" />
-                      اسم العميل{installationsCount > 1 ? ` ${index + 1}` : ''} *
+                      اسم العميل{actualCount > 1 ? ` ${index + 1}` : ''} *
                     </label>
                     <input
                       type="text"
-                      value={client.clientName}
+                      value={client?.clientName ?? ''}
                       onChange={(e) =>
                         updateClient(index, 'clientName', e.target.value)
                       }
@@ -628,7 +687,7 @@ export default function InstallationForm({
                     </label>
                     <input
                       type="text"
-                      value={client.area}
+                      value={client?.area ?? ''}
                       onChange={(e) =>
                         updateClient(index, 'area', e.target.value)
                       }
@@ -645,7 +704,7 @@ export default function InstallationForm({
                     </label>
                     <input
                       type="text"
-                      value={client.buildingNumber}
+                      value={client?.buildingNumber ?? ''}
                       onChange={(e) =>
                         updateClient(index, 'buildingNumber', e.target.value)
                       }
@@ -662,7 +721,7 @@ export default function InstallationForm({
                     </label>
                     <input
                       type="text"
-                      value={client.buildingName}
+                      value={client?.buildingName ?? ''}
                       onChange={(e) =>
                         updateClient(index, 'buildingName', e.target.value)
                       }
@@ -679,7 +738,7 @@ export default function InstallationForm({
                     </label>
                     <input
                       type="tel"
-                      value={client.clientLandline}
+                      value={client?.clientLandline ?? ''}
                       onChange={(e) =>
                         updateClient(index, 'clientLandline', e.target.value)
                       }
@@ -696,7 +755,7 @@ export default function InstallationForm({
                     </label>
                     <input
                       type="tel"
-                      value={client.clientMobile}
+                      value={client?.clientMobile ?? ''}
                       onChange={(e) =>
                         updateClient(index, 'clientMobile', e.target.value)
                       }
@@ -712,7 +771,7 @@ export default function InstallationForm({
                       ملاحظة أو شكوى (اختياري)
                     </label>
                     <textarea
-                      value={client.notes}
+                      value={client?.notes ?? ''}
                       onChange={(e) =>
                         updateClient(index, 'notes', e.target.value)
                       }
@@ -729,7 +788,7 @@ export default function InstallationForm({
                     <Paperclip size={12} className="text-amber-600" />
                     <span className="text-xs font-black text-amber-700">
                       مرفقات وصور
-                      {installationsCount > 1 ? ` العميل ${index + 1}` : ''}
+                      {actualCount > 1 ? ` العميل ${index + 1}` : ''}
                     </span>
                     <span className="text-[9px] text-slate-400 mr-1">
                       (تُضغط تلقائياً)
@@ -741,7 +800,7 @@ export default function InstallationForm({
                     <PhotoSlot
                       label="بطاقة العميل"
                       icon={<ImageIcon size={16} />}
-                      value={client.clientIdPhoto}
+                      value={client?.clientIdPhoto}
                       uploadingKey={`clientId-${index}`}
                       currentUploadingKey={uploadingKey}
                       accept="image/*"
@@ -757,7 +816,7 @@ export default function InstallationForm({
                     <PhotoSlot
                       label="صورة البوكس"
                       icon={<Camera size={16} />}
-                      value={client.boxPhoto}
+                      value={client?.boxPhoto}
                       uploadingKey={`box-${index}`}
                       currentUploadingKey={uploadingKey}
                       accept="image/*"
@@ -773,7 +832,7 @@ export default function InstallationForm({
                     <PhotoSlot
                       label="قياس الحرارة"
                       icon={<Camera size={16} />}
-                      value={client.thermalPhoto}
+                      value={client?.thermalPhoto}
                       uploadingKey={`thermal-${index}`}
                       currentUploadingKey={uploadingKey}
                       accept="image/*"
@@ -789,7 +848,7 @@ export default function InstallationForm({
                     <PhotoSlot
                       label="البوكس الرئيسي"
                       icon={<Camera size={16} />}
-                      value={client.mainBoxPhoto}
+                      value={client?.mainBoxPhoto}
                       uploadingKey={`mainBox-${index}`}
                       currentUploadingKey={uploadingKey}
                       accept="image/*"
@@ -805,7 +864,7 @@ export default function InstallationForm({
                     <PhotoSlot
                       label="فيديو التركيبة"
                       icon={<Video size={16} />}
-                      value={client.installationVideo}
+                      value={client?.installationVideo}
                       uploadingKey={`video-${index}`}
                       currentUploadingKey={uploadingKey}
                       accept="video/*"
@@ -824,15 +883,15 @@ export default function InstallationForm({
           ))}
 
           {/* ══ حقول ديناميكية إضافية من الإعدادات ══ */}
-          {extraFields.filter((f) => f.isEnabled).length > 0 && (
+          {(extraFields ?? []).filter((f) => f?.isEnabled).length > 0 && (
             <div className="space-y-3">
               <div className="border-t border-slate-100 pt-2">
                 <p className="text-xs font-black text-slate-500 mb-3">
                   حقول إضافية
                 </p>
               </div>
-              {extraFields
-                .filter((f) => f.isEnabled)
+              {(extraFields ?? [])
+                .filter((f) => f?.isEnabled)
                 .map((field) => (
                   <div key={field.id}>
                     <label className={labelCls}>
@@ -843,7 +902,7 @@ export default function InstallationForm({
                     </label>
                     {field.type === 'select' && field.optionsAr ? (
                       <select
-                        value={customFieldValues[field.name] || ''}
+                        value={customFieldValues[field.name] ?? ''}
                         onChange={(e) =>
                           setCustomFieldValues((p) => ({
                             ...p,
@@ -862,7 +921,7 @@ export default function InstallationForm({
                     ) : (
                       <input
                         type={field.type}
-                        value={customFieldValues[field.name] || ''}
+                        value={customFieldValues[field.name] ?? ''}
                         onChange={(e) =>
                           setCustomFieldValues((p) => ({
                             ...p,
@@ -877,15 +936,13 @@ export default function InstallationForm({
             </div>
           )}
 
-          {/* ══ زر الإرسال — type="button" فقط، بدون <form> ══ */}
+          {/* ══ زر الإرسال ══ */}
           <button
             type="button"
             onClick={handleSubmitClick}
             disabled={isSubmitting || syncStatus === 'syncing'}
             className="w-full py-4 rounded-2xl text-white font-black text-sm flex items-center justify-center gap-2 transition active:scale-95 disabled:opacity-60 cursor-pointer shadow-md"
-            style={{
-              background: 'linear-gradient(135deg, #d97706, #b45309)',
-            }}
+            style={{ background: 'linear-gradient(135deg, #d97706, #b45309)' }}
           >
             {isSubmitting ? (
               <>
@@ -896,9 +953,7 @@ export default function InstallationForm({
               <>
                 <Wrench size={16} />
                 إرسال بيانات التركيب
-                {installationsCount > 1
-                  ? `ات (${installationsCount} عملاء)`
-                  : 'ة'}
+                {actualCount > 1 ? `ات (${actualCount} عملاء)` : 'ة'}
               </>
             )}
           </button>
@@ -908,6 +963,7 @@ export default function InstallationForm({
               جاري المزامنة مع GitHub...
             </p>
           )}
+
         </div>
       </div>
     </div>
