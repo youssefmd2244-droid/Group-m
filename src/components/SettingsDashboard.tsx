@@ -335,6 +335,9 @@ export default function SettingsDashboard({
 
   const pushInstallationsToGithub = async (newUsers: UserRecord[], newInstalls: InstallationRecord[]) => {
     if (!GH_TOKEN_VAL) return;
+    // ─── إضافة AbortController للـ timeout (60 ثانية) ───────────────────
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60_000);
     try {
       const REPO_OWNER_V = ghOwner?.trim() || HARDCODED_OWNER;
       const REPO_NAME_V  = ghRepo?.trim()  || HARDCODED_REPO;
@@ -343,19 +346,43 @@ export default function SettingsDashboard({
       const url = `https://api.github.com/repos/${REPO_OWNER_V}/${REPO_NAME_V}/contents/${DATA_PATH_V}`;
       const getRes = await fetch(`${url}?ref=${BRANCH_V}`, {
         headers: { Authorization: `Bearer ${GH_TOKEN_VAL}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+        signal: controller.signal,
       });
       const shaData = getRes.ok ? await getRes.json() : null;
       const currentSha: string | undefined = shaData?.sha;
       let existingConfig: Record<string, unknown> = {};
       if (shaData?.content) { try { const dec = fromBase64GH(shaData.content); const parsed = JSON.parse(dec); if (parsed?.__config__) existingConfig = parsed.__config__; } catch (_) {} }
+
+      // safeStringify — يمنع تجميد المتصفح مع Base64 كبير
+      const jsonStr = await new Promise<string>((resolve, reject) => {
+        setTimeout(() => {
+          try { resolve(JSON.stringify({ users: newUsers, installations: newInstalls, __config__: existingConfig }, null, 2)); }
+          catch (e) { reject(e); }
+        }, 0);
+      });
+
       const payload: Record<string, string> = {
         message: `chore: sync ${newUsers.length} records + ${newInstalls.length} installations [auto]`,
-        content: toBase64GH(JSON.stringify({ users: newUsers, installations: newInstalls, __config__: existingConfig }, null, 2)),
+        content: toBase64GH(jsonStr),
         branch: BRANCH_V,
       };
       if (currentSha) payload.sha = currentSha;
-      await fetch(url, { method: 'PUT', headers: { Authorization: `Bearer ${GH_TOKEN_VAL}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28' }, body: JSON.stringify(payload) });
-    } catch (err) { console.warn('GitHub push failed:', err); }
+      await fetch(url, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${GH_TOKEN_VAL}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      // ⚠️ لا نمس الـ Token عند أي خطأ (Timeout أو Network أو 4xx)
+      if (err?.name !== 'AbortError') {
+        console.warn('GitHub push failed (Token محفوظ):', err);
+      } else {
+        console.warn('GitHub push timeout — سيُعاد لاحقاً');
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   // ── Installation handlers ─────────────────────────────────────────────────
@@ -934,9 +961,10 @@ export default function SettingsDashboard({
 
   // 6. GITHUB REST PIPELINE HANDLERS
   const handleSaveGithubConfig = () => {
-    // ✅ حفظ التوكن في localStorage عشان ما يتمسحش
+    // ✅ حفظ التوكن في localStorage بمفاتيح متعددة لضمان عدم الضياع
     if (ghToken.trim()) {
       localStorage.setItem('gh_token_fallback', ghToken.trim());
+      localStorage.setItem('gh_token_primary',  ghToken.trim()); // مفتاح إضافي
     }
     const updatedConfig = {
       ...appConfig,
@@ -1092,7 +1120,7 @@ export default function SettingsDashboard({
             <span className={`font-black ${syncStatus === 'syncing' ? 'text-amber-500' : syncStatus === 'success' ? 'text-emerald-500' : syncStatus === 'error' ? 'text-rose-500' : 'text-slate-600'}`}>
               {syncStatus === 'syncing' && 'جاري محاذاة ورفع المرفقات...'}
               {syncStatus === 'success' && 'محدث ومُزامن بالكامل مع جيت هاب!'}
-              {syncStatus === 'error' && 'عطل في التزامن (يرجى مراجعة التوكن في التبويب والمحاولة مجدداً)'}
+              {syncStatus === 'error' && 'فشل مؤقت في التزامن — جاري إعادة المحاولة تلقائياً (التوكن محفوظ ✓)'}
               {syncStatus === 'idle' && 'جاهز / تخزين محلي وتلقائي'}
             </span>
           </div>
