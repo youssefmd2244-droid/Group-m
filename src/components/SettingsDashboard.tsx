@@ -10,7 +10,8 @@ import {
 } from 'lucide-react';
 import { UserRecord, ContactNumber, ThemeConfig, AppConfig, GitHubConfig, FormFieldSchema, CustomFloatingButton } from '../types';
 import { exportProfileAsPNG, printUserProfile, exportProfileAsHTML2Canvas } from '../utils/exportProfile';
-import { exportToExcel, exportToWord, exportToCSV, exportToImage } from '../utils/advancedExports';
+import { exportToExcel, exportToWord, exportToCSV, exportToImage, exportInstallationsToExcel, exportInstallationsToWord, exportInstallationsToPDF } from '../utils/advancedExports';
+import type { InstallationExportRecord } from '../utils/advancedExports';
 
 
 // ── New Types for Installations ────────────────────────────────────────────
@@ -246,6 +247,8 @@ export default function SettingsDashboard({
   );
   const [newInstField, setNewInstField] = useState({ name: '', labelAr: '', type: 'text' as InstallationFieldSchema['type'], required: false, optionsAr: '' });
   const [instFieldMsg, setInstFieldMsg] = useState('');
+  const [editingInstFieldId, setEditingInstFieldId] = useState<string | null>(null);
+  const [editingInstFieldData, setEditingInstFieldData] = useState<Partial<InstallationFieldSchema>>({});
 
   // ── SITE CUSTOMIZATION TAB STATE ─────────────────────────────────────────
   const [siteTitle, setSiteTitle] = useState(appConfig.websiteTitle || 'Group M');
@@ -1675,6 +1678,18 @@ export default function SettingsDashboard({
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 cursor-pointer transition ml-auto">
                     <Download size={12} />تصدير CSV
                   </button>
+                  <button onClick={() => exportInstallationsToPDF(installations as InstallationExportRecord[], undefined, installPrice, appConfig.websiteTitle)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-50 text-rose-700 border border-rose-100 hover:bg-rose-100 cursor-pointer transition">
+                    <FileText size={12} />PDF
+                  </button>
+                  <button onClick={() => exportInstallationsToExcel(installations as InstallationExportRecord[], undefined, installPrice)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-50 text-teal-700 border border-teal-100 hover:bg-teal-100 cursor-pointer transition">
+                    <BarChart2 size={12} />Excel
+                  </button>
+                  <button onClick={() => exportInstallationsToWord(installations as InstallationExportRecord[], undefined, installPrice, appConfig.websiteTitle)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 cursor-pointer transition">
+                    <FileDown size={12} />Word
+                  </button>
                 </div>
 
                 <div className="relative">
@@ -1744,6 +1759,18 @@ export default function SettingsDashboard({
                             <button onClick={() => exportInstallationsToCSV(installations, worker.name)}
                               className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 border border-emerald-100 text-emerald-600 hover:bg-emerald-100 cursor-pointer flex items-center gap-1">
                               <Download size={12} />CSV
+                            </button>
+                            <button onClick={() => exportInstallationsToPDF(installations as InstallationExportRecord[], worker.name, installPrice, appConfig.websiteTitle)}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-50 border border-rose-100 text-rose-600 hover:bg-rose-100 cursor-pointer flex items-center gap-1">
+                              <FileText size={12} />PDF
+                            </button>
+                            <button onClick={() => exportInstallationsToExcel(installations as InstallationExportRecord[], worker.name, installPrice)}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-50 border border-teal-100 text-teal-600 hover:bg-teal-100 cursor-pointer flex items-center gap-1">
+                              <BarChart2 size={12} />Excel
+                            </button>
+                            <button onClick={() => exportInstallationsToWord(installations as InstallationExportRecord[], worker.name, installPrice, appConfig.websiteTitle)}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100 cursor-pointer flex items-center gap-1">
+                              <FileDown size={12} />Word
                             </button>
                           </div>
                         </div>
@@ -1844,6 +1871,7 @@ export default function SettingsDashboard({
               <div className="space-y-4 text-right">
                 <h3 className="text-base font-black text-slate-800 flex items-center gap-2"><Package size={16} className="text-violet-600" />منشئ حقول التركيبات الديناميكي</h3>
 
+                {/* ── إضافة حقل جديد ── */}
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
                   <h4 className="text-xs font-black text-slate-700">إضافة حقل جديد لنموذج التركيبات</h4>
                   <div className="grid grid-cols-2 gap-2">
@@ -1873,31 +1901,121 @@ export default function SettingsDashboard({
                   {instFieldMsg && <div className="text-xs text-emerald-600 font-bold">{instFieldMsg}</div>}
                 </div>
 
+                {/* ── قائمة الحقول مع تعديل كامل ── */}
                 <div className="space-y-2">
                   {installFieldSchema.map(field => (
-                    <div key={field.id} className={`bg-white border rounded-xl p-3 flex items-center justify-between gap-2 ${field.isEnabled ? 'border-slate-200' : 'border-slate-100 opacity-50'}`}>
-                      <div>
-                        <div className="text-xs font-bold text-slate-700">{field.labelAr}</div>
-                        <div className="text-[9px] text-slate-400">{field.type} · {field.required ? 'إجباري' : 'اختياري'}</div>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => {
-                          const updated = installFieldSchema.map(f => f.id === field.id ? {...f, isEnabled: !f.isEnabled} : f);
-                          setInstallFieldSchema(updated); onUpdateConfig({...appConfig, installationFieldsSchema: updated});
-                        }} className="p-1.5 rounded-lg cursor-pointer">
-                          {field.isEnabled ? <ToggleRight size={14} className="text-emerald-500" /> : <ToggleLeft size={14} className="text-slate-400" />}
-                        </button>
-                        <button onClick={() => {
-                          if (window.confirm('حذف الحقل؟')) {
-                            const updated = installFieldSchema.filter(f => f.id !== field.id);
+                    <div key={field.id} className={`bg-white border rounded-2xl p-3 space-y-2 transition ${field.isEnabled ? 'border-violet-100' : 'border-slate-100 opacity-60'}`}>
+                      {/* Header row */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-slate-700">{field.labelAr}</span>
+                          <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">{field.type}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${field.required ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-400'}`}>
+                            {field.required ? 'إجباري' : 'اختياري'}
+                          </span>
+                        </div>
+                        <div className="flex gap-1 items-center">
+                          {/* Toggle enabled */}
+                          <button onClick={() => {
+                            const updated = installFieldSchema.map(f => f.id === field.id ? {...f, isEnabled: !f.isEnabled} : f);
                             setInstallFieldSchema(updated); onUpdateConfig({...appConfig, installationFieldsSchema: updated});
-                          }
-                        }} className="p-1.5 rounded-lg cursor-pointer text-rose-400 hover:bg-rose-50"><Trash2 size={12} /></button>
+                          }} className="p-1.5 rounded-lg cursor-pointer" title={field.isEnabled ? 'تعطيل' : 'تفعيل'}>
+                            {field.isEnabled ? <ToggleRight size={16} className="text-emerald-500" /> : <ToggleLeft size={16} className="text-slate-400" />}
+                          </button>
+                          {/* Edit toggle */}
+                          <button onClick={() => {
+                            if (editingInstFieldId === field.id) { setEditingInstFieldId(null); setEditingInstFieldData({}); }
+                            else { setEditingInstFieldId(field.id); setEditingInstFieldData({...field}); }
+                          }} className={`p-1.5 rounded-lg cursor-pointer transition ${editingInstFieldId === field.id ? 'bg-violet-100 text-violet-600' : 'text-slate-400 hover:bg-slate-50'}`} title="تعديل">
+                            <Edit2 size={13} />
+                          </button>
+                          {/* Delete */}
+                          <button onClick={() => {
+                            if (window.confirm('حذف الحقل نهائياً؟')) {
+                              const updated = installFieldSchema.filter(f => f.id !== field.id);
+                              setInstallFieldSchema(updated); onUpdateConfig({...appConfig, installationFieldsSchema: updated});
+                            }
+                          }} className="p-1.5 rounded-lg cursor-pointer text-rose-400 hover:bg-rose-50" title="حذف"><Trash2 size={13} /></button>
+                        </div>
                       </div>
+
+                      {/* Inline edit form */}
+                      {editingInstFieldId === field.id && (
+                        <div className="border-t border-slate-100 pt-3 space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="col-span-2 flex flex-col gap-1">
+                              <label className="text-[9px] font-bold text-slate-500">اسم الحقل بالعربية</label>
+                              <input value={editingInstFieldData.labelAr || ''} onChange={e => setEditingInstFieldData(p => ({...p, labelAr: e.target.value}))}
+                                className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none" placeholder="اسم الحقل بالعربية" />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] font-bold text-slate-500">نوع الحقل</label>
+                              <select value={editingInstFieldData.type || 'text'} onChange={e => setEditingInstFieldData(p => ({...p, type: e.target.value as InstallationFieldSchema['type']}))}
+                                className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none">
+                                <option value="text">نص</option>
+                                <option value="number">رقم</option>
+                                <option value="tel">هاتف</option>
+                                <option value="select">قائمة اختيار</option>
+                              </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[9px] font-bold text-slate-500">إجبارية الحقل</label>
+                              <select value={editingInstFieldData.required ? 'true' : 'false'} onChange={e => setEditingInstFieldData(p => ({...p, required: e.target.value === 'true'}))}
+                                className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none">
+                                <option value="true">إجباري</option>
+                                <option value="false">اختياري</option>
+                              </select>
+                            </div>
+                            {(editingInstFieldData.type === 'select') && (
+                              <div className="col-span-2 flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500">خيارات القائمة (مفصولة بفاصلة)</label>
+                                <input value={editingInstFieldData.optionsAr || ''} onChange={e => setEditingInstFieldData(p => ({...p, optionsAr: e.target.value}))}
+                                  className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none" placeholder="خيار 1، خيار 2، خيار 3" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <button onClick={() => { setEditingInstFieldId(null); setEditingInstFieldData({}); }}
+                              className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 cursor-pointer">إلغاء</button>
+                            <button onClick={() => {
+                              const updated = installFieldSchema.map(f => f.id === field.id ? {...f, ...editingInstFieldData} : f);
+                              setInstallFieldSchema(updated);
+                              onUpdateConfig({...appConfig, installationFieldsSchema: updated});
+                              setEditingInstFieldId(null);
+                              setEditingInstFieldData({});
+                              setInstFieldMsg('تم حفظ التعديلات ✓');
+                              setTimeout(() => setInstFieldMsg(''), 2500);
+                            }} className="px-4 py-1.5 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 cursor-pointer flex items-center gap-1.5">
+                              <Save size={12} />حفظ التعديل
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                   {installFieldSchema.length === 0 && <div className="text-center py-6 text-slate-400 text-xs">لا توجد حقول مخصصة حتى الآن</div>}
                 </div>
+
+                {/* ── تصدير حقول التركيبات ── */}
+                {installFieldSchema.length > 0 && (
+                  <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 space-y-2">
+                    <h4 className="text-xs font-black text-violet-700 flex items-center gap-1.5"><Download size={13} />تصدير بيانات التركيبات</h4>
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={() => exportInstallationsToPDF(installations as InstallationExportRecord[], undefined, installPrice, appConfig.websiteTitle)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer transition">
+                        <FileText size={12} />تصدير PDF
+                      </button>
+                      <button onClick={() => exportInstallationsToExcel(installations as InstallationExportRecord[], undefined, installPrice)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600 text-white hover:bg-teal-700 cursor-pointer transition">
+                        <BarChart2 size={12} />تصدير Excel
+                      </button>
+                      <button onClick={() => exportInstallationsToWord(installations as InstallationExportRecord[], undefined, installPrice, appConfig.websiteTitle)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 cursor-pointer transition">
+                        <FileDown size={12} />تصدير Word
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
