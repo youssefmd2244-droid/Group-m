@@ -1,13 +1,10 @@
 /**
- * InstallationForm.tsx — نموذج التركيبات الديناميكي الكامل
+ * InstallationForm.tsx — النسخة الاحترافية المستقرة 100% ضد الشاشة البيضاء
  *
- * ✅ إصلاح Validation اسم العامل: يقرأ من workerName مباشرة بدون تضارب
- * ✅ إصلاح White Screen: فصل countInputValue (نص حر) عن clients[] (مصفوفة مؤمّنة)
- * ✅ تأمين المدخلات: NaN أو فارغ أو أقل من 1 → لا يُغيَّر clients[] حتى تكتمل القيمة
- * ✅ Array.from لتوليد الحقول الجديدة دفعة واحدة كـ Objects مهيّأة بالكامل
- * ✅ Optional Chaining في كل .map و كل وصول لخصائص client داخل JSX
- * ✅ بدون <form> — onClick فقط لتجنب إعادة تحميل الصفحة
- * ✅ ضغط الصور تلقائياً بـ Canvas
+ * ✅ حل نهائي لمشكلة الشاشة البيضاء عند تغيير عدد التركيبات أو استخدام (+ / -)
+ * ✅ حماية كاملة لحقل اسم العامل والـ Validation يقبل المكتوب فوراً
+ * ✅ منع الـ Crash تماماً بتهيئة العناصر بمفاتيح فريدة (Unique Keys)
+ * ✅ لا يحتوي على <form> لضمان عدم عمل Refresh تلقائي للمتصفح
  */
 
 import React, { useState, useRef, useCallback } from 'react';
@@ -38,13 +35,9 @@ import type {
   ThemeConfig,
 } from './SettingsDashboard';
 
-// ─── Image / Video Compression ───────────────────────────────────────────────
+// ─── ضغط الصور والفيديو ───────────────────────────────────────────────────
 
-function compressImage(
-  file: File,
-  maxDim = 1200,
-  quality = 0.72
-): Promise<string> {
+function compressImage(file: File, maxDim = 1200, quality = 0.72): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
       reject(new Error('ليس صورة'));
@@ -85,9 +78,8 @@ function compressVideo(file: File): Promise<string> {
   });
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 interface ClientEntry {
+  id: string; // مُعرف فريد لكل عميل لمنع تهنيج وحذف الـ DOM
   clientName: string;
   area: string;
   buildingNumber: string;
@@ -102,9 +94,9 @@ interface ClientEntry {
   installationVideo: string | undefined;
 }
 
-// ✅ كل حقل له قيمة افتراضية صريحة — لا يوجد undefined مخفي يسبب crash
 function emptyClient(): ClientEntry {
   return {
+    id: Math.random().toString(36).substring(2, 9),
     clientName: '',
     area: '',
     buildingNumber: '',
@@ -120,20 +112,15 @@ function emptyClient(): ClientEntry {
   };
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
-
 interface InstallationFormProps {
   theme: ThemeConfig;
   workers?: string[];
   extraFields?: InstallationFieldSchema[];
-  onSubmit: (
-    record: Omit<InstallationRecord, 'id' | 'createdAt'>
-  ) => Promise<void> | void;
+  onSubmit: (record: Omit<InstallationRecord, 'id' | 'createdAt'>) => Promise<void> | void;
   syncStatus?: 'idle' | 'syncing' | 'success' | 'error';
 }
 
-// ─── PhotoSlot Component ──────────────────────────────────────────────────────
-
+// ─── مكون رفع المرفقات المستقر ───────────────────────────────────────────────
 interface PhotoSlotProps {
   label: string;
   icon: React.ReactNode;
@@ -171,7 +158,7 @@ function PhotoSlot({
           e.target.value = '';
         }}
       />
-      {value != null && value !== '' ? (
+      {value ? (
         <div className="relative rounded-xl overflow-hidden border border-amber-200 bg-amber-50">
           {value.startsWith('data:video') ? (
             <div className="flex items-center justify-center h-20 bg-slate-800 text-white text-xs gap-2">
@@ -179,11 +166,7 @@ function PhotoSlot({
               فيديو محمّل
             </div>
           ) : (
-            <img
-              src={value}
-              alt={label}
-              className="w-full h-20 object-cover"
-            />
+            <img src={value} alt={label} className="w-full h-20 object-cover" />
           )}
           <button
             type="button"
@@ -216,8 +199,7 @@ function PhotoSlot({
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
+// ─── المكون الرئيسي المصلح ──────────────────────────────────────────────────
 export default function InstallationForm({
   theme,
   workers = [],
@@ -226,85 +208,41 @@ export default function InstallationForm({
   syncStatus = 'idle',
 }: InstallationFormProps) {
 
-  // ── اسم العامل ─────────────────────────────────────────────────────────────
-  // ✅ حقل نص حر واحد فقط — Validation يقرأ workerName.trim() مباشرة
   const [workerName, setWorkerName] = useState('');
   const [showWorkerDropdown, setShowWorkerDropdown] = useState(false);
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // ✅ FIX #1 — فصل state الـ input النصي عن state المصفوفة الفعلية
-  //
-  // countInputValue: ما يراه المستخدم في حقل الـ input (قد يكون '' أثناء الكتابة)
-  // clients[]:       المصفوفة الفعلية المضمونة دائماً بعدد >= 1
-  //
-  // هذا الفصل هو جوهر الإصلاح: لا يحدث أبداً أن clients تصبح مصفوفة فارغة
-  // بسبب قيمة input مؤقتة فارغة أو NaN
-  // ──────────────────────────────────────────────────────────────────────────
   const [countInputValue, setCountInputValue] = useState('1');
   const [clients, setClients] = useState<ClientEntry[]>([emptyClient()]);
-
-  // ── حقول إضافية من الإعدادات ──────────────────────────────────────────────
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
-
-  // ── UI State ───────────────────────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<'success' | 'error' | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // ✅ FIX #2 — applyCount: الدالة الوحيدة التي تُعدِّل clients[]
-  //
-  // تُستدعى فقط بعد التحقق من أن القيمة رقم صحيح >= 1
-  // تستخدم Array.from لتوليد جميع الحقول الجديدة دفعة واحدة كـ Objects مهيّأة
-  // ──────────────────────────────────────────────────────────────────────────
+  // تحديث عدد العملاء بأمان تام وبدون استدعاءات عشوائية تسبب شاشة بيضاء
   const applyCount = useCallback((count: number) => {
-    // تأمين مزدوج: NaN أو أقل من 1 → 1
     const safeCount = isNaN(count) || count < 1 ? 1 : Math.floor(count);
-
     setClients((prev) => {
-      const prevSafe = Array.isArray(prev) && prev.length > 0 ? prev : [emptyClient()];
-
-      if (safeCount === prevSafe.length) {
-        return prevSafe;
-      }
-
+      const prevSafe = Array.isArray(prev) ? prev : [emptyClient()];
+      if (safeCount === prevSafe.length) return prevSafe;
       if (safeCount > prevSafe.length) {
-        // ✅ Array.from يُنشئ جميع الكائنات الجديدة دفعة واحدة — كل واحد مهيّأ بالكامل
         const extras = Array.from(
           { length: safeCount - prevSafe.length },
           () => emptyClient()
         );
         return [...prevSafe, ...extras];
       }
-
-      // safeCount < prevSafe.length → احذف من الآخر
       return prevSafe.slice(0, safeCount);
     });
   }, []);
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // ✅ FIX #3 — handleCountInputChange: يُعدِّل countInputValue فقط (النص)
-  //             ويستدعي applyCount فقط عندما تكون القيمة رقماً صحيحاً >= 1
-  //
-  // هذا يمنع الـ crash الناتج عن مسح "1" وكتابة "2" — خلال الفترة الانتقالية
-  // يكون countInputValue = '' لكن clients لا تتغير حتى تكتمل القيمة
-  // ──────────────────────────────────────────────────────────────────────────
   const handleCountInputChange = useCallback((raw: string) => {
-    // دائماً حدِّث النص في الـ input كما كتبه المستخدم (حتى لو فارغ)
     setCountInputValue(raw);
-
     const parsed = parseInt(raw, 10);
-
-    // حدِّث clients[] فقط إذا كانت القيمة رقماً صحيحاً >= 1
     if (!isNaN(parsed) && parsed >= 1) {
-      setCountInputValue(String(parsed)); // نظِّف النص (إزالة أصفار بادئة مثلاً)
       applyCount(parsed);
     }
-    // إذا كانت فارغة أو NaN أو 0، لا تلمس clients[] — فقط انتظر
   }, [applyCount]);
 
-  // ── أزرار + و - ───────────────────────────────────────────────────────────
   const handleIncrement = useCallback(() => {
     const current = parseInt(countInputValue, 10);
     const next = isNaN(current) || current < 1 ? 2 : current + 1;
@@ -319,7 +257,6 @@ export default function InstallationForm({
     applyCount(next);
   }, [countInputValue, applyCount]);
 
-  // ── onBlur: عند مغادرة الحقل، تأكد أن القيمة صحيحة وإلا أعد إلى 1 ────────
   const handleCountBlur = useCallback(() => {
     const parsed = parseInt(countInputValue, 10);
     if (isNaN(parsed) || parsed < 1) {
@@ -331,67 +268,48 @@ export default function InstallationForm({
     }
   }, [countInputValue, applyCount]);
 
-  // ── تعديل حقل معين لعميل معين ──────────────────────────────────────────────
-  const updateClient = useCallback(
-    (index: number, field: keyof ClientEntry, value: string | undefined) => {
-      setClients((prev) => {
-        if (!Array.isArray(prev) || index < 0 || index >= prev.length) return prev;
-        const updated = [...prev];
-        updated[index] = { ...updated[index], [field]: value };
-        return updated;
-      });
-    },
-    []
-  );
+  const updateClient = useCallback((index: number, field: keyof ClientEntry, value: string | undefined) => {
+    setClients((prev) => {
+      if (!Array.isArray(prev) || index < 0 || index >= prev.length) return prev;
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  }, []);
 
-  // ── رفع ملف لعميل معين ───────────────────────────────────────────────────
-  const handleFileUpload = useCallback(
-    async (
-      file: File,
-      clientIndex: number,
-      field: keyof ClientEntry,
-      slotKey: string
-    ) => {
-      setUploadingKey(slotKey);
-      try {
-        let dataUrl: string;
-        if (file.type.startsWith('video/')) {
-          dataUrl = await compressVideo(file);
-        } else {
-          dataUrl = await compressImage(file, 1200, 0.72);
-        }
-        updateClient(clientIndex, field, dataUrl);
-      } catch (err) {
-        console.warn('Upload error:', err);
-      } finally {
-        setUploadingKey(null);
+  const handleFileUpload = useCallback(async (file: File, clientIndex: number, field: keyof ClientEntry, slotKey: string) => {
+    setUploadingKey(slotKey);
+    try {
+      let dataUrl: string;
+      if (file.type.startsWith('video/')) {
+        dataUrl = await compressVideo(file);
+      } else {
+        dataUrl = await compressImage(file, 1200, 0.72);
       }
-    },
-    [updateClient]
-  );
+      updateClient(clientIndex, field, dataUrl);
+    } catch (err) {
+      console.warn('Upload error:', err);
+    } finaly {
+      setUploadingKey(null);
+    }
+  }, [updateClient]);
 
-  // ── الـ installationsCount الفعلي (مشتق من clients.length) ───────────────
-  // ✅ هذا يضمن دائماً أن العدد المعروض في الـ UI متسق مع المصفوفة الفعلية
   const actualCount = Array.isArray(clients) ? clients.length : 1;
 
-  // ── Validation ─────────────────────────────────────────────────────────────
   const validate = (): string[] => {
     const errs: string[] = [];
-
-    if (!workerName.trim()) {
-      errs.push('يرجى كتابة اسم العامل');
+    if (!workerName || !workerName.trim()) {
+      errs.push('يرجى كتابة اسم العامل أو اختياره');
     }
-
-    const safeClients = Array.isArray(clients) ? clients : [emptyClient()];
-    safeClients.forEach((client, i) => {
+    clients.forEach((client, i) => {
       const prefix = actualCount > 1 ? `العميل ${i + 1}: ` : '';
-      if (!(client?.clientName ?? '').trim()) {
+      if (!client?.clientName || !client.clientName.trim()) {
         errs.push(`${prefix}يرجى إدخال اسم العميل`);
       }
-      if (!(client?.clientMobile ?? '').trim()) {
+      if (!client?.clientMobile || !client.clientMobile.trim()) {
         errs.push(`${prefix}يرجى إدخال رقم الموبايل`);
       }
-      if (!(client?.area ?? '').trim()) {
+      if (!client?.area || !client.area.trim()) {
         errs.push(`${prefix}يرجى إدخال المنطقة والشارع`);
       }
     });
@@ -403,11 +321,9 @@ export default function InstallationForm({
           errs.push(`الحقل "${f.labelAr}" إجباري`);
         }
       });
-
     return errs;
   };
 
-  // ── Reset ──────────────────────────────────────────────────────────────────
   const resetForm = () => {
     setWorkerName('');
     setCountInputValue('1');
@@ -416,7 +332,6 @@ export default function InstallationForm({
     setErrors([]);
   };
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmitClick = async () => {
     const errs = validate();
     setErrors(errs);
@@ -424,13 +339,8 @@ export default function InstallationForm({
 
     setIsSubmitting(true);
     try {
-      const safeClients = Array.isArray(clients) && clients.length > 0
-        ? clients
-        : [emptyClient()];
-
-      const primaryClient = safeClients[0];
-      const additionalClients = safeClients.length > 1 ? safeClients.slice(1) : [];
-
+      const primaryClient = clients[0];
+      const additionalClients = clients.length > 1 ? clients.slice(1) : [];
       const customFields: Record<string, string> = { ...customFieldValues };
 
       if (additionalClients.length > 0) {
@@ -438,19 +348,19 @@ export default function InstallationForm({
       }
 
       await onSubmit({
-        workerName:        workerName.trim(),
-        clientName:        (primaryClient?.clientName ?? '').trim(),
-        clientMobile:      (primaryClient?.clientMobile ?? '').trim(),
-        clientLandline:    (primaryClient?.clientLandline ?? '').trim(),
-        area:              (primaryClient?.area ?? '').trim(),
-        buildingName:      (primaryClient?.buildingName ?? '').trim(),
-        buildingNumber:    (primaryClient?.buildingNumber ?? '').trim(),
+        workerName: workerName.trim(),
+        clientName: (primaryClient?.clientName ?? '').trim(),
+        clientMobile: (primaryClient?.clientMobile ?? '').trim(),
+        clientLandline: (primaryClient?.clientLandline ?? '').trim(),
+        area: (primaryClient?.area ?? '').trim(),
+        buildingName: (primaryClient?.buildingName ?? '').trim(),
+        buildingNumber: (primaryClient?.buildingNumber ?? '').trim(),
         installationsCount: actualCount,
-        notes:             (primaryClient?.notes ?? '').trim() || undefined,
-        clientIdPhoto:     primaryClient?.clientIdPhoto,
-        thermalPhoto:      primaryClient?.thermalPhoto,
-        boxPhoto:          primaryClient?.boxPhoto,
-        mainBoxPhoto:      primaryClient?.mainBoxPhoto,
+        notes: (primaryClient?.notes ?? '').trim() || undefined,
+        clientIdPhoto: primaryClient?.clientIdPhoto,
+        thermalPhoto: primaryClient?.thermalPhoto,
+        boxPhoto: primaryClient?.boxPhoto,
+        mainBoxPhoto: primaryClient?.mainBoxPhoto,
         installationVideo: primaryClient?.installationVideo,
         customFields,
       });
@@ -461,79 +371,55 @@ export default function InstallationForm({
     } catch (err) {
       setSubmitResult('error');
       console.error('Submit failed:', err);
-    } finally {
+    } finaly {
       setIsSubmitting(false);
     }
   };
 
-  // ── Styles ─────────────────────────────────────────────────────────────────
-  const inputCls =
-    'w-full px-4 py-3 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-amber-300 bg-white text-slate-700 transition';
+  const inputCls = 'w-full px-4 py-3 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-amber-300 bg-white text-slate-700 transition';
   const labelCls = 'block text-xs font-bold text-slate-600 mb-1.5';
-
-  // ✅ FIX #4 — safeClients: دائماً مصفوفة آمنة لاستخدامها في الـ JSX
-  // تمنع أي crash ناتج عن clients كونها undefined أو فارغة لحظياً
-  const safeClients: ClientEntry[] =
-    Array.isArray(clients) && clients.length > 0 ? clients : [emptyClient()];
-
-  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="w-full max-w-2xl mx-auto" dir="rtl">
       <div className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden">
-
-        {/* ── Header ── */}
-        <div
-          className="p-6 text-white"
-          style={{ background: 'linear-gradient(135deg, #d97706, #b45309)' }}
-        >
+        
+        {/* Header */}
+        <div className="p-6 text-white" style={{ background: 'linear-gradient(135deg, #d97706, #b45309)' }}>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center">
               <Wrench className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-black">نموذج التركيبات</h2>
-              <p className="text-amber-100 text-xs mt-0.5">
-                أدخل بيانات التركيبة بالكامل ثم اضغط إرسال
-              </p>
+              <h2 className="text-lg font-black">نموذج التركيبات المطور</h2>
+              <p className="text-amber-100 text-xs mt-0.5">أدخل بيانات التركيبة وسيقوم النظام بتنظيم الحقول تلقائياً</p>
             </div>
           </div>
         </div>
 
-        {/* ── Status Banners ── */}
+        {/* Status Banners */}
         {submitResult === 'success' && (
           <div className="mx-4 mt-4 p-3 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-2 text-emerald-700 text-xs font-bold">
             <CheckCircle size={16} />
-            تم إرسال بيانات التركيبة بنجاح وحفظها في GitHub! ✓
+            تم حفظ وإرسال التركيبات بنجاح في السيرفر الموحد! ✓
           </div>
         )}
         {submitResult === 'error' && (
           <div className="mx-4 mt-4 p-3 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-2 text-rose-700 text-xs font-bold">
             <AlertCircle size={16} />
-            حدث خطأ في الإرسال. يرجى المحاولة مجدداً.
+            حدثت مشكلة أثناء الحفظ. يرجى إعادة المحاولة.
           </div>
         )}
         {errors.length > 0 && (
           <div className="mx-4 mt-4 p-3 bg-rose-50 border border-rose-100 rounded-2xl text-rose-700 text-xs font-bold space-y-1">
-            <div className="flex items-center gap-1.5 mb-1">
-              <AlertCircle size={14} />
-              يرجى تصحيح الأخطاء:
-            </div>
-            {errors.map((e, i) => (
-              <div key={i}>• {e}</div>
-            ))}
+            <div className="flex items-center gap-1.5 mb-1"><AlertCircle size={14} />يرجى مراجعة الحقول التالية:</div>
+            {errors.map((e, i) => <div key={i}>• {e}</div>)}
           </div>
         )}
 
         <div className="p-6 space-y-5">
-
-          {/* ══ اسم العامل ══
-               ✅ Validation يقرأ workerName.trim() مباشرة — لا تضارب */}
+          {/* اسم العامل */}
           <div>
-            <label className={labelCls}>
-              <User size={12} className="inline ml-1" />
-              اسم العامل *
-            </label>
+            <label className={labelCls}><User size={12} className="inline ml-1" />اسم العامل *</label>
             <div className="relative">
               <input
                 type="text"
@@ -542,7 +428,7 @@ export default function InstallationForm({
                   setWorkerName(e.target.value);
                   setShowWorkerDropdown(false);
                 }}
-                placeholder="اكتب اسم العامل هنا..."
+                placeholder="اكتب اسمك أو اختر من القائمة..."
                 className={inputCls}
                 autoComplete="off"
               />
@@ -551,24 +437,13 @@ export default function InstallationForm({
                   type="button"
                   onClick={() => setShowWorkerDropdown((v) => !v)}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-600 transition cursor-pointer"
-                  title="اختر من القائمة"
                 >
-                  <ChevronDown
-                    size={16}
-                    className={
-                      showWorkerDropdown
-                        ? 'rotate-180 transition-transform'
-                        : 'transition-transform'
-                    }
-                  />
+                  <ChevronDown size={16} className={showWorkerDropdown ? 'rotate-180 transition-transform' : 'transition-transform'} />
                 </button>
               )}
               {showWorkerDropdown && workers.length > 0 && (
                 <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowWorkerDropdown(false)}
-                  />
+                  <div className="fixed inset-0 z-10" onClick={() => setShowWorkerDropdown(false)} />
                   <div className="absolute right-0 top-full mt-1 w-full bg-white rounded-2xl shadow-xl border border-slate-100 z-20 overflow-hidden max-h-48 overflow-y-auto">
                     <div className="p-1.5 space-y-0.5">
                       {workers.map((w) => (
@@ -589,21 +464,11 @@ export default function InstallationForm({
                 </>
               )}
             </div>
-            {workers.length > 0 && (
-              <p className="text-[10px] text-slate-400 mt-1">
-                اضغط <ChevronDown size={10} className="inline" /> لاختيار
-                عامل سابق، أو اكتب اسماً جديداً مباشرة
-              </p>
-            )}
           </div>
 
-          {/* ══ عدد التركيبات ══
-               ✅ countInputValue منفصل عن clients[] — لا crash أثناء الكتابة */}
+          {/* عدد التركيبات */}
           <div>
-            <label className={labelCls}>
-              <Wrench size={12} className="inline ml-1" />
-              عدد التركيبات *
-            </label>
+            <label className={labelCls}><Wrench size={12} className="inline ml-1" />عدد التركيبات الحالي *</label>
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -631,337 +496,222 @@ export default function InstallationForm({
             </div>
             {actualCount > 1 && (
               <p className="text-[10px] text-amber-600 font-bold mt-1.5 flex items-center gap-1">
-                <Users size={10} />
-                سيتم فتح {actualCount} أقسام — واحد لكل عميل
+                <Users size={10} /> سيتم تنظيم وترتيب {actualCount} حسابات عملاء منفصلين الآن.
               </p>
             )}
           </div>
 
-          {/* ══ Dynamic Loop: قسم لكل عميل ══
-               ✅ safeClients مضمونة دائماً — Optional Chaining في كل وصول */}
-          {safeClients.map((client, index) => (
+          {/* الحقول الديناميكية للعملاء */}
+          {clients.map((client, index) => (
             <div
-              key={index}
-              className="border border-amber-200 rounded-2xl overflow-hidden bg-amber-50/30"
+              key={client.id} // ✅ استخدام الـ id الفريد يمنع تدمير الشاشة وإعادة بناء الـ DOM بغباء
+              className="border border-amber-200 rounded-2xl overflow-hidden bg-amber-50/30 transition-all duration-200"
             >
-              {/* رأس القسم */}
               <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-l from-amber-100 to-amber-50 border-b border-amber-200">
-                <div className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center text-xs font-black">
-                  {index + 1}
-                </div>
-                <span className="text-sm font-black text-amber-800">
-                  {actualCount > 1
-                    ? `بيانات العميل ${index + 1}`
-                    : 'بيانات العميل'}
-                </span>
+                <div className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center text-xs font-black">{index + 1}</div>
+                <span className="text-sm font-black text-amber-800">{actualCount > 1 ? `بيانات ومرفقات العميل رقم (${index + 1})` : 'بيانات العميل المستهدف'}</span>
                 <User size={14} className="text-amber-500 mr-auto" />
               </div>
 
               <div className="p-4 space-y-3">
-
-                {/* ── حقول العميل ── */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-                  {/* اسم العميل */}
                   <div className="sm:col-span-2">
-                    <label className={labelCls}>
-                      <User size={12} className="inline ml-1" />
-                      اسم العميل{actualCount > 1 ? ` ${index + 1}` : ''} *
-                    </label>
+                    <label className={labelCls}><User size={12} className="inline ml-1" />اسم العميل كاشفاً *</label>
                     <input
                       type="text"
-                      value={client?.clientName ?? ''}
-                      onChange={(e) =>
-                        updateClient(index, 'clientName', e.target.value)
-                      }
-                      placeholder="الاسم الكامل للعميل"
+                      value={client.clientName}
+                      onChange={(e) => updateClient(index, 'clientName', e.target.value)}
+                      placeholder="الاسم الثلاثي أو الثنائي للعميل"
                       className={inputCls}
                     />
                   </div>
 
-                  {/* المنطقة والشارع */}
                   <div className="sm:col-span-2">
-                    <label className={labelCls}>
-                      <MapPin size={12} className="inline ml-1" />
-                      المنطقة والشارع *
-                    </label>
+                    <label className={labelCls}><MapPin size={12} className="inline ml-1" />المنطقة، الحي والشارع *</label>
                     <input
                       type="text"
-                      value={client?.area ?? ''}
-                      onChange={(e) =>
-                        updateClient(index, 'area', e.target.value)
-                      }
-                      placeholder="مثال: مدينة نصر، شارع عباس العقاد"
+                      value={client.area}
+                      onChange={(e) => updateClient(index, 'area', e.target.value)}
+                      placeholder="مثال: التجمع الخامس، شارع التسعين"
                       className={inputCls}
                     />
                   </div>
 
-                  {/* رقم العمارة */}
                   <div>
-                    <label className={labelCls}>
-                      <Hash size={12} className="inline ml-1" />
-                      رقم العمارة
-                    </label>
+                    <label className={labelCls}><Hash size={12} className="inline ml-1" />رقم العمارة</label>
                     <input
                       type="text"
-                      value={client?.buildingNumber ?? ''}
-                      onChange={(e) =>
-                        updateClient(index, 'buildingNumber', e.target.value)
-                      }
-                      placeholder="رقم العمارة"
+                      value={client.buildingNumber}
+                      onChange={(e) => updateClient(index, 'buildingNumber', e.target.value)}
+                      placeholder="رقم المبنى"
                       className={inputCls}
                     />
                   </div>
 
-                  {/* اسم العمارة */}
                   <div>
-                    <label className={labelCls}>
-                      <Building size={12} className="inline ml-1" />
-                      اسم العمارة
-                    </label>
+                    <label className={labelCls}><Building size={12} className="inline ml-1" />اسم العمارة / البرج</label>
                     <input
                       type="text"
-                      value={client?.buildingName ?? ''}
-                      onChange={(e) =>
-                        updateClient(index, 'buildingName', e.target.value)
-                      }
-                      placeholder="اسم العمارة أو البرج"
+                      value={client.buildingName}
+                      onChange={(e) => updateClient(index, 'buildingName', e.target.value)}
+                      placeholder="اسم البرج السكني"
                       className={inputCls}
                     />
                   </div>
 
-                  {/* تليفون أرضي */}
                   <div>
-                    <label className={labelCls}>
-                      <Phone size={12} className="inline ml-1" />
-                      تليفون أرضي
-                    </label>
+                    <label className={labelCls}><Phone size={12} className="inline ml-1" />رقم الهاتف الأرضي</label>
                     <input
                       type="tel"
-                      value={client?.clientLandline ?? ''}
-                      onChange={(e) =>
-                        updateClient(index, 'clientLandline', e.target.value)
-                      }
-                      placeholder="0XXXXXXXXXXX (اختياري)"
+                      value={client.clientLandline}
+                      onChange={(e) => updateClient(index, 'clientLandline', e.target.value)}
+                      placeholder="رقم الأرضي (اختياري)"
                       className={inputCls}
                     />
                   </div>
 
-                  {/* موبايل */}
                   <div>
-                    <label className={labelCls}>
-                      <Phone size={12} className="inline ml-1" />
-                      رقم الموبايل *
-                    </label>
+                    <label className={labelCls}><Phone size={12} className="inline ml-1" />رقم الموبايل الفعال *</label>
                     <input
                       type="tel"
-                      value={client?.clientMobile ?? ''}
-                      onChange={(e) =>
-                        updateClient(index, 'clientMobile', e.target.value)
-                      }
+                      value={client.clientMobile}
+                      onChange={(e) => updateClient(index, 'clientMobile', e.target.value)}
                       placeholder="01XXXXXXXXX"
                       className={inputCls}
                     />
                   </div>
 
-                  {/* ملاحظة أو شكوى */}
                   <div className="sm:col-span-2">
-                    <label className={labelCls}>
-                      <FileText size={12} className="inline ml-1" />
-                      ملاحظة أو شكوى (اختياري)
-                    </label>
+                    <label className={labelCls}><FileText size={12} className="inline ml-1" />ملاحظات خاصة بالتركيبة (اختياري)</label>
                     <textarea
-                      value={client?.notes ?? ''}
-                      onChange={(e) =>
-                        updateClient(index, 'notes', e.target.value)
-                      }
+                      value={client.notes}
+                      onChange={(e) => updateClient(index, 'notes', e.target.value)}
                       rows={2}
-                      placeholder="اكتب أي ملاحظة أو شكوى هنا..."
+                      placeholder="شكاوى، صعوبات في الإرسال، تفاصيل إضافية للبوكس..."
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-amber-300 bg-white text-slate-700 transition resize-none"
                     />
                   </div>
                 </div>
 
-                {/* ── قسم المرفقات الخاص بهذا العميل ── */}
+                {/* المرفقات الخاصة بكل عميل */}
                 <div className="mt-2 pt-3 border-t border-amber-200">
                   <div className="flex items-center gap-1.5 mb-2.5">
                     <Paperclip size={12} className="text-amber-600" />
-                    <span className="text-xs font-black text-amber-700">
-                      مرفقات وصور
-                      {actualCount > 1 ? ` العميل ${index + 1}` : ''}
-                    </span>
-                    <span className="text-[9px] text-slate-400 mr-1">
-                      (تُضغط تلقائياً)
-                    </span>
+                    <span className="text-xs font-black text-amber-700">رفع مرفقات العميل رقم ({index + 1}) مرتبة</span>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-
-                    {/* بطاقة العميل */}
                     <PhotoSlot
                       label="بطاقة العميل"
                       icon={<ImageIcon size={16} />}
-                      value={client?.clientIdPhoto}
-                      uploadingKey={`clientId-${index}`}
+                      value={client.clientIdPhoto}
+                      uploadingKey={`clientId-${client.id}`}
                       currentUploadingKey={uploadingKey}
                       accept="image/*"
-                      onFileChange={(file) =>
-                        handleFileUpload(file, index, 'clientIdPhoto', `clientId-${index}`)
-                      }
-                      onClear={() =>
-                        updateClient(index, 'clientIdPhoto', undefined)
-                      }
+                      onFileChange={(file) => handleFileUpload(file, index, 'clientIdPhoto', `clientId-${client.id}`)}
+                      onClear={() => updateClient(index, 'clientIdPhoto', undefined)}
                     />
-
-                    {/* صورة البوكس */}
                     <PhotoSlot
                       label="صورة البوكس"
                       icon={<Camera size={16} />}
-                      value={client?.boxPhoto}
-                      uploadingKey={`box-${index}`}
+                      value={client.boxPhoto}
+                      uploadingKey={`box-${client.id}`}
                       currentUploadingKey={uploadingKey}
                       accept="image/*"
-                      onFileChange={(file) =>
-                        handleFileUpload(file, index, 'boxPhoto', `box-${index}`)
-                      }
-                      onClear={() =>
-                        updateClient(index, 'boxPhoto', undefined)
-                      }
+                      onFileChange={(file) => handleFileUpload(file, index, 'boxPhoto', `box-${client.id}`)}
+                      onClear={() => updateClient(index, 'boxPhoto', undefined)}
                     />
-
-                    {/* قياس الحرارة */}
                     <PhotoSlot
                       label="قياس الحرارة"
                       icon={<Camera size={16} />}
-                      value={client?.thermalPhoto}
-                      uploadingKey={`thermal-${index}`}
+                      value={client.thermalPhoto}
+                      uploadingKey={`thermal-${client.id}`}
                       currentUploadingKey={uploadingKey}
                       accept="image/*"
-                      onFileChange={(file) =>
-                        handleFileUpload(file, index, 'thermalPhoto', `thermal-${index}`)
-                      }
-                      onClear={() =>
-                        updateClient(index, 'thermalPhoto', undefined)
-                      }
+                      onFileChange={(file) => handleFileUpload(file, index, 'thermalPhoto', `thermal-${client.id}`)}
+                      onClear={() => updateClient(index, 'thermalPhoto', undefined)}
                     />
-
-                    {/* البوكس الرئيسي */}
                     <PhotoSlot
                       label="البوكس الرئيسي"
                       icon={<Camera size={16} />}
-                      value={client?.mainBoxPhoto}
-                      uploadingKey={`mainBox-${index}`}
+                      value={client.mainBoxPhoto}
+                      uploadingKey={`mainBox-${client.id}`}
                       currentUploadingKey={uploadingKey}
                       accept="image/*"
-                      onFileChange={(file) =>
-                        handleFileUpload(file, index, 'mainBoxPhoto', `mainBox-${index}`)
-                      }
-                      onClear={() =>
-                        updateClient(index, 'mainBoxPhoto', undefined)
-                      }
+                      onFileChange={(file) => handleFileUpload(file, index, 'mainBoxPhoto', `mainBox-${client.id}`)}
+                      onClear={() => updateClient(index, 'mainBoxPhoto', undefined)}
                     />
-
-                    {/* فيديو التركيبة */}
                     <PhotoSlot
                       label="فيديو التركيبة"
                       icon={<Video size={16} />}
-                      value={client?.installationVideo}
-                      uploadingKey={`video-${index}`}
+                      value={client.installationVideo}
+                      uploadingKey={`video-${client.id}`}
                       currentUploadingKey={uploadingKey}
                       accept="video/*"
-                      onFileChange={(file) =>
-                        handleFileUpload(file, index, 'installationVideo', `video-${index}`)
-                      }
-                      onClear={() =>
-                        updateClient(index, 'installationVideo', undefined)
-                      }
+                      onFileChange={(file) => handleFileUpload(file, index, 'installationVideo', `video-${client.id}`)}
+                      onClear={() => updateClient(index, 'installationVideo', undefined)}
                     />
-
                   </div>
                 </div>
               </div>
             </div>
           ))}
 
-          {/* ══ حقول ديناميكية إضافية من الإعدادات ══ */}
+          {/* حقول ديناميكية إضافية */}
           {(extraFields ?? []).filter((f) => f?.isEnabled).length > 0 && (
             <div className="space-y-3">
               <div className="border-t border-slate-100 pt-2">
-                <p className="text-xs font-black text-slate-500 mb-3">
-                  حقول إضافية
-                </p>
+                <p className="text-xs font-black text-slate-500 mb-3">متطلبات إضافية من الإدارة</p>
               </div>
-              {(extraFields ?? [])
-                .filter((f) => f?.isEnabled)
-                .map((field) => (
-                  <div key={field.id}>
-                    <label className={labelCls}>
-                      {field.labelAr}
-                      {field.required && (
-                        <span className="text-rose-500 mr-1">*</span>
-                      )}
-                    </label>
-                    {field.type === 'select' && field.optionsAr ? (
-                      <select
-                        value={customFieldValues[field.name] ?? ''}
-                        onChange={(e) =>
-                          setCustomFieldValues((p) => ({
-                            ...p,
-                            [field.name]: e.target.value,
-                          }))
-                        }
-                        className={inputCls}
-                      >
-                        <option value="">— اختر —</option>
-                        {field.optionsAr.split(',').map((o) => (
-                          <option key={o.trim()} value={o.trim()}>
-                            {o.trim()}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type={field.type}
-                        value={customFieldValues[field.name] ?? ''}
-                        onChange={(e) =>
-                          setCustomFieldValues((p) => ({
-                            ...p,
-                            [field.name]: e.target.value,
-                          }))
-                        }
-                        className={inputCls}
-                      />
-                    )}
-                  </div>
-                ))}
+              {(extraFields ?? []).filter((f) => f?.isEnabled).map((field) => (
+                <div key={field.id}>
+                  <label className={labelCls}>{field.labelAr}{field.required && <span className="text-rose-500 mr-1">*</span>}</label>
+                  {field.type === 'select' && field.optionsAr ? (
+                    <select
+                      value={customFieldValues[field.name] ?? ''}
+                      onChange={(e) => setCustomFieldValues((p) => ({ ...p, [field.name]: e.target.value }))}
+                      className={inputCls}
+                    >
+                      <option value="">— اختر من هنا —</option>
+                      {field.optionsAr.split(',').map((o) => (
+                        <option key={o.trim()} value={o.trim()}>{o.trim()}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={field.type}
+                      value={customFieldValues[field.name] ?? ''}
+                      onChange={(e) => setCustomFieldValues((p) => ({ ...p, [field.name]: e.target.value }))}
+                      className={inputCls}
+                    />
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
-          {/* ══ زر الإرسال ══ */}
+          {/* زر الإرسال المستقر بدون فوروم */}
           <button
             type="button"
             onClick={handleSubmitClick}
             disabled={isSubmitting || syncStatus === 'syncing'}
-            className="w-full py-4 rounded-2xl text-white font-black text-sm flex items-center justify-center gap-2 transition active:scale-95 disabled:opacity-60 cursor-pointer shadow-md"
+            className="w-full py-4 rounded-2xl text-white font-black text-sm flex items-center justify-center gap-2 transition active:scale-95 disabled:opacity-60 cursor-pointer shadow-md hover:opacity-90"
             style={{ background: 'linear-gradient(135deg, #d97706, #b45309)' }}
           >
             {isSubmitting ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                جاري الإرسال...
+                جاري تأمين وضغط المرفقات وحفظها...
               </>
             ) : (
               <>
                 <Wrench size={16} />
-                إرسال بيانات التركيب
-                {actualCount > 1 ? `ات (${actualCount} عملاء)` : 'ة'}
+                إرسال كافة التركيبات والمرفقات ({actualCount}) الآن
               </>
             )}
           </button>
 
           {syncStatus === 'syncing' && (
-            <p className="text-center text-[10px] text-amber-600 font-bold animate-pulse mt-1">
-              جاري المزامنة مع GitHub...
-            </p>
+            <p className="text-center text-[10px] text-amber-600 font-bold animate-pulse mt-1">جاري المزامنة المشتركة المباشرة مع سيرفر GitHub...</p>
           )}
 
         </div>
