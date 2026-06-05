@@ -173,6 +173,7 @@ export default function SettingsDashboard({
   const [focusedUser, setFocusedUser] = useState<UserRecord | null>(null);
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
+  const [lightboxVideo, setLightboxVideo] = useState<string | null>(null);
   const [activeExportDropdown, setActiveExportDropdown] = useState<string | null>(null);
 
   // 1. DYNAMIC COMPONENT & SCHEMA STATE
@@ -1719,12 +1720,63 @@ export default function SettingsDashboard({
                             <button onClick={() => handleDeleteInstall(inst.id)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-100 cursor-pointer"><Trash2 size={12} /></button>
                           </div>
                         </div>
-                        <div className="flex gap-2 mt-2 flex-wrap">
-                          {inst.clientIdPhoto && <img src={inst.clientIdPhoto} onClick={() => setLightboxPhoto(inst.clientIdPhoto!)} className="w-12 h-10 rounded-lg object-cover cursor-pointer border border-slate-200" alt="بطاقة" />}
-                          {inst.thermalPhoto && <img src={inst.thermalPhoto} onClick={() => setLightboxPhoto(inst.thermalPhoto!)} className="w-12 h-10 rounded-lg object-cover cursor-pointer border border-slate-200" alt="حرارة" />}
-                          {inst.boxPhoto && <img src={inst.boxPhoto} onClick={() => setLightboxPhoto(inst.boxPhoto!)} className="w-12 h-10 rounded-lg object-cover cursor-pointer border border-slate-200" alt="بوكس" />}
-                          {inst.mainBoxPhoto && <img src={inst.mainBoxPhoto} onClick={() => setLightboxPhoto(inst.mainBoxPhoto!)} className="w-12 h-10 rounded-lg object-cover cursor-pointer border border-slate-200" alt="البوكس الرئيسي" />}
-                        </div>
+                        {/* ── Media Strip: photos + video ── */}
+                        {(inst.clientIdPhoto || inst.thermalPhoto || inst.boxPhoto || inst.mainBoxPhoto || inst.installationVideo) && (
+                          <div className="flex gap-2 mt-2 flex-wrap items-end">
+                            {/* صور */}
+                            {([ 
+                              { src: inst.clientIdPhoto,  label: 'بطاقة' },
+                              { src: inst.thermalPhoto,   label: 'حرارة' },
+                              { src: inst.boxPhoto,       label: 'بوكس' },
+                              { src: inst.mainBoxPhoto,   label: 'البوكس الرئيسي' },
+                            ] as { src?: string; label: string }[]).map(({ src, label }) =>
+                              src ? (
+                                <div key={label} className="relative group">
+                                  <img
+                                    src={src}
+                                    alt={label}
+                                    onClick={() => setLightboxPhoto(src)}
+                                    className="w-12 h-10 rounded-lg object-cover cursor-zoom-in border border-slate-200 hover:opacity-90 transition"
+                                  />
+                                  <span className="absolute -bottom-4 left-0 right-0 text-center text-[8px] text-slate-400 font-bold opacity-0 group-hover:opacity-100 transition pointer-events-none">{label}</span>
+                                </div>
+                              ) : null
+                            )}
+
+                            {/* ── فيديو التركيبة ── */}
+                            {inst.installationVideo && inst.installationVideo.startsWith('data:video') && (
+                              <div className="relative group flex flex-col items-center gap-1">
+                                {/* Thumbnail مصغّر قابل للضغط */}
+                                <button
+                                  type="button"
+                                  onClick={() => setLightboxVideo(inst.installationVideo!)}
+                                  className="w-14 h-10 rounded-lg bg-slate-800 flex flex-col items-center justify-center gap-0.5 cursor-pointer border border-slate-600 hover:bg-slate-700 transition relative overflow-hidden"
+                                  title="تشغيل الفيديو"
+                                >
+                                  <Video size={14} className="text-amber-400" />
+                                  <span className="text-[8px] text-slate-300 font-bold leading-none">فيديو</span>
+                                  {/* Play overlay */}
+                                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/40">
+                                    <div className="w-5 h-5 rounded-full bg-white/90 flex items-center justify-center">
+                                      <span style={{ fontSize: 8, marginLeft: 1 }}>▶</span>
+                                    </div>
+                                  </div>
+                                </button>
+
+                                {/* زر تحميل الفيديو */}
+                                <a
+                                  href={inst.installationVideo}
+                                  download={`video_${inst.clientName || inst.id}_${new Date(inst.createdAt).toLocaleDateString('ar-EG').replace(/\//g,'-')}.mp4`}
+                                  className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[8px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 hover:bg-emerald-100 transition cursor-pointer"
+                                  title="تحميل الفيديو"
+                                  onClick={e => e.stopPropagation()}
+                                >
+                                  <Download size={8} />تحميل
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1855,7 +1907,42 @@ export default function SettingsDashboard({
                         <input type="number" value={editingInstall.installationsCount} onChange={e => setEditingInstall({...editingInstall, installationsCount: Number(e.target.value)})} placeholder="عدد التركيبات" className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none" min={0} />
                         <textarea value={editingInstall.notes||''} onChange={e => setEditingInstall({...editingInstall, notes: e.target.value})} placeholder="ملحوظة" className="px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none col-span-2 resize-none" rows={2} />
                       </div>
-                      <div className="flex gap-2 justify-end">
+
+                      {/* ── إدارة فيديو التركيبة داخل التعديل ── */}
+                      {editingInstall.installationVideo && editingInstall.installationVideo.startsWith('data:video') && (
+                        <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <Video size={14} className="text-amber-600" />
+                            <span className="text-xs font-bold text-slate-700">فيديو التركيبة مرفق</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setLightboxVideo(editingInstall.installationVideo!)}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold text-white bg-amber-500 hover:bg-amber-600 transition cursor-pointer"
+                            >
+                              <Video size={10} />معاينة
+                            </button>
+                            <a
+                              href={editingInstall.installationVideo}
+                              download={`video_${editingInstall.clientName || editingInstall.id}.mp4`}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 hover:bg-emerald-100 transition cursor-pointer"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <Download size={10} />تحميل
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => setEditingInstall({ ...editingInstall, installationVideo: undefined })}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-100 hover:bg-rose-100 transition cursor-pointer"
+                            >
+                              <Trash2 size={10} />حذف
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex gap-2 justify-end mt-2">
                         <button onClick={() => setEditingInstall(null)} className="px-4 py-2 rounded-xl text-xs bg-slate-100 text-slate-600 cursor-pointer">إلغاء</button>
                         <button onClick={handleUpdateInstall} className="px-4 py-2 rounded-xl text-xs bg-amber-500 text-white font-bold cursor-pointer hover:bg-amber-600">حفظ التعديلات</button>
                       </div>
@@ -3025,6 +3112,58 @@ export default function SettingsDashboard({
               </button>
             </footer>
           </div>
+        </div>
+      )}
+
+      {/* ── VIDEO LIGHTBOX ── */}
+      {lightboxVideo && (
+        <div
+          className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center p-4 select-none"
+          onClick={() => setLightboxVideo(null)}
+        >
+          {/* إغلاق */}
+          <button
+            type="button"
+            className="absolute top-4 right-4 text-white bg-white/10 hover:bg-white/20 p-2.5 rounded-full transition z-10"
+            onClick={() => setLightboxVideo(null)}
+          >
+            <X size={20} />
+          </button>
+
+          {/* مشغّل الفيديو */}
+          <video
+            src={lightboxVideo}
+            controls
+            autoPlay
+            playsInline
+            className="max-w-full max-h-[78vh] rounded-2xl shadow-2xl object-contain bg-black"
+            onClick={e => e.stopPropagation()}
+            style={{ minWidth: 260 }}
+          />
+
+          {/* أزرار التحكم */}
+          <div className="flex items-center gap-3 mt-4" onClick={e => e.stopPropagation()}>
+            {/* تحميل */}
+            <a
+              href={lightboxVideo}
+              download="installation_video.mp4"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition cursor-pointer"
+            >
+              <Download size={14} />تحميل الفيديو
+            </a>
+            {/* إغلاق */}
+            <button
+              type="button"
+              onClick={() => setLightboxVideo(null)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-white/10 hover:bg-white/20 transition cursor-pointer"
+            >
+              <X size={14} />إغلاق
+            </button>
+          </div>
+
+          <p className="text-slate-500 text-[10px] mt-3 font-bold">
+            اضغط خارج الفيديو للإغلاق
+          </p>
         </div>
       )}
 
