@@ -147,8 +147,10 @@ export default function SettingsDashboard({
   onAdminLogout,
 }: SettingsDashboardProps) {
   // Authentication Gateway State
+  // ✅ نستخدم localStorage عشان الجلسة ما تتمسحش مع ريفريش أو تغيير وضع سطح المكتب
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem('group_m_admin_session') === 'active';
+    return localStorage.getItem('group_m_admin_ok') === '1' ||
+           sessionStorage.getItem('group_m_admin_session') === 'active';
   });
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
@@ -230,9 +232,17 @@ export default function SettingsDashboard({
 
 
   // ── Installations State ───────────────────────────────────────────────────
-  const [installations, setInstallations] = useState<InstallationRecord[]>(
-    appConfig?.installations || []
-  );
+  const [installations, setInstallations] = useState<InstallationRecord[]>(() => {
+    // ✅ نحمل من appConfig أو من localStorage — أيهما أحدث وأكثر
+    const fromConfig = appConfig?.installations || [];
+    try {
+      const fromStorage = JSON.parse(localStorage.getItem('group_m_installations') || '[]') as InstallationRecord[];
+      // خد الأكثر
+      return fromStorage.length >= fromConfig.length ? fromStorage : fromConfig;
+    } catch {
+      return fromConfig;
+    }
+  });
   const [installPrice, setInstallPrice] = useState<number>(
     appConfig?.installationPricePerUnit || 45
   );
@@ -266,7 +276,10 @@ export default function SettingsDashboard({
     setThemeColors(appConfig.theme);
     setFieldsSchemaList(appConfig.fieldsSchema || []);
     setInstallFieldSchema(appConfig?.installationFieldsSchema || []);
-    setInstallations(appConfig?.installations || []);
+    // ✅ نحدّث التركيبات بس لو appConfig عنده بيانات أحدث
+    if ((appConfig?.installations || []).length > 0) {
+      setInstallations(appConfig.installations || []);
+    }
     setInstallPrice(appConfig?.installationPricePerUnit || 45);
     setLocalizationMap(appConfig.localizationOverrides || {});
     setGhToken(appConfig.github.token || (import.meta.env.VITE_GITHUB_TOKEN as string) || '');
@@ -285,6 +298,8 @@ export default function SettingsDashboard({
   const handleAuthClick = () => {
     const correctPassword = appConfig.masterPasswordHash || '20042007';
     if (passwordInput === correctPassword) {
+      // ✅ حفظ في localStorage عشان ما يتمسحش مع ريفريش
+      localStorage.setItem('group_m_admin_ok', '1');
       sessionStorage.setItem('group_m_admin_session', 'active');
       localStorage.setItem('isAdminNotificationDevice', 'true');
       if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
@@ -303,6 +318,7 @@ export default function SettingsDashboard({
   const handleLogout = () => {
     setIsAuthenticated(false);
     setPasswordInput('');
+    localStorage.removeItem('group_m_admin_ok');
     sessionStorage.removeItem('group_m_admin_session');
     if (onAdminLogout) onAdminLogout();
   };
@@ -314,7 +330,7 @@ export default function SettingsDashboard({
 
   // ── GitHub helpers for installations ─────────────────────────────────────
 
-  const GH_TOKEN_VAL = ghToken || (import.meta as any).env?.VITE_GITHUB_TOKEN || '';
+  const GH_TOKEN_VAL = ghToken || (import.meta as any).env?.VITE_GITHUB_TOKEN || localStorage.getItem('gh_token_fallback') || '';
 
   const pushInstallationsToGithub = async (newUsers: UserRecord[], newInstalls: InstallationRecord[]) => {
     if (!GH_TOKEN_VAL) return;
@@ -345,6 +361,8 @@ export default function SettingsDashboard({
 
   const updateInstallations = (newInstalls: InstallationRecord[]) => {
     setInstallations(newInstalls);
+    // ✅ حفظ في localStorage عشان يتحمل للكل
+    localStorage.setItem('group_m_installations', JSON.stringify(newInstalls));
     onUpdateConfig({ ...appConfig, installations: newInstalls, installationPricePerUnit: installPrice });
     pushInstallationsToGithub(users || [], newInstalls);
   };
@@ -423,6 +441,8 @@ export default function SettingsDashboard({
     localStorage.getItem('gh_token_fallback') ||
     ''
   );
+  // ✅ حفظ التوكن في localStorage كلما وجد
+  if (GH_TOKEN) localStorage.setItem('gh_token_fallback', GH_TOKEN);
 
   /** Fetch data.json from GitHub and update users list immediately (on boot / refresh) */
   const fetchUsersFromGithub = async () => {
@@ -913,7 +933,10 @@ export default function SettingsDashboard({
 
   // 6. GITHUB REST PIPELINE HANDLERS
   const handleSaveGithubConfig = () => {
-    
+    // ✅ حفظ التوكن في localStorage عشان ما يتمسحش
+    if (ghToken.trim()) {
+      localStorage.setItem('gh_token_fallback', ghToken.trim());
+    }
     const updatedConfig = {
       ...appConfig,
       websiteTitle,
