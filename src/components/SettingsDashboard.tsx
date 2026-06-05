@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Settings, Users, Palette, Github, FileDown, Eye, Edit2, Trash2, KeyRound, 
   Globe, PhoneCall, Save, RefreshCw, LogOut, Check, Search, X, 
@@ -58,8 +58,6 @@ interface SettingsDashboardProps {
   onClose: () => void;
   onAdminLogin?: () => void;
   onAdminLogout?: () => void;
-  initialData?: any;
-  onReconcile?: () => Promise<void>;
 }
 
 
@@ -147,8 +145,6 @@ export default function SettingsDashboard({
   onClose,
   onAdminLogin,
   onAdminLogout,
-  initialData,
-  onReconcile,
 }: SettingsDashboardProps) {
   // Authentication Gateway State
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -320,31 +316,7 @@ export default function SettingsDashboard({
 
   const GH_TOKEN_VAL = ghToken || (import.meta as any).env?.VITE_GITHUB_TOKEN || '';
 
-  const fetchUsersFromGithub = useCallback(async () => {
-    if (!GH_TOKEN_VAL) return;
-    try {
-      const REPO_OWNER_V = ghOwner?.trim() || HARDCODED_OWNER;
-      const REPO_NAME_V  = ghRepo?.trim()  || HARDCODED_REPO;
-      const BRANCH_V     = ghBranch?.trim() || HARDCODED_BRANCH;
-      const DATA_PATH_V  = ghDataPath?.trim() || HARDCODED_DATA_PATH;
-      const url = `https://api.github.com/repos/${REPO_OWNER_V}/${REPO_NAME_V}/contents/${DATA_PATH_V}?ref=${BRANCH_V}`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${GH_TOKEN_VAL}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
-      });
-      if (!res.ok) return;
-      const json = await res.json();
-      const raw = JSON.parse(fromBase64GH(json.content));
-      const parsed: UserRecord[] = Array.isArray(raw) ? raw : (Array.isArray(raw?.users) ? raw.users : []);
-      onUpdateUsers(parsed);
-      localStorage.setItem('group_m_users', JSON.stringify(parsed));
-      if (Array.isArray(raw?.installations)) {
-        setInstallations(raw.installations);
-        onUpdateConfig({ ...appConfig, installations: raw.installations });
-      }
-    } catch (err) { console.warn('GitHub fetch failed:', err); }
-  }, [GH_TOKEN_VAL, ghOwner, ghRepo, ghBranch, ghDataPath]);
-
-  const pushInstallationsToGithub = useCallback(async (newUsers: UserRecord[], newInstalls: InstallationRecord[]) => {
+  const pushInstallationsToGithub = async (newUsers: UserRecord[], newInstalls: InstallationRecord[]) => {
     if (!GH_TOKEN_VAL) return;
     try {
       const REPO_OWNER_V = ghOwner?.trim() || HARDCODED_OWNER;
@@ -367,7 +339,7 @@ export default function SettingsDashboard({
       if (currentSha) payload.sha = currentSha;
       await fetch(url, { method: 'PUT', headers: { Authorization: `Bearer ${GH_TOKEN_VAL}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28' }, body: JSON.stringify(payload) });
     } catch (err) { console.warn('GitHub push failed:', err); }
-  }, [GH_TOKEN_VAL, ghOwner, ghRepo, ghBranch, ghDataPath]);
+  };
 
   // ── Installation handlers ─────────────────────────────────────────────────
 
