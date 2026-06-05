@@ -555,8 +555,8 @@ export default function SettingsDashboard({
     }
   };
 
-  const handleUpdateUserValue = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleUpdateUserValue = () => {
+    
     if (!editingUser) return;
     const updated = (users || []).map((u) => (u.id === editingUser.id ? editingUser : u));
     onUpdateUsers(updated);
@@ -912,8 +912,8 @@ export default function SettingsDashboard({
   };
 
   // 6. GITHUB REST PIPELINE HANDLERS
-  const handleSaveGithubConfig = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveGithubConfig = () => {
+    
     const updatedConfig = {
       ...appConfig,
       websiteTitle,
@@ -946,8 +946,8 @@ export default function SettingsDashboard({
   };
 
   // 7. SECURITY PASSWORD SYSTEM
-  const handleSecurityPassUpdate = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSecurityPassUpdate = () => {
+    
     if (!securityPassword.trim() || securityPassword !== confirmPassword) {
       setSecError('كلمتا المرور غير متطابقتين أو تحتوي حقولاً فارغة!');
       return;
@@ -2600,7 +2600,7 @@ export default function SettingsDashboard({
             {/* ====== TAB 8: GITHUB PIPELINE (DATABASE BACKEND) ====== */}
             {activeTab === 'github' && (
               <div className="space-y-6 text-right" id="tab-github-workspace">
-                <form onSubmit={handleSaveGithubConfig} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-base font-black text-slate-800 flex items-center gap-1">
                       <Github size={16} />
@@ -2759,7 +2759,7 @@ export default function SettingsDashboard({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 pt-2">
-                    <button type="submit" className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:opacity-95" style={{ backgroundColor: themeColors.primary }}>
+                    <button type="button" onClick={handleSaveGithubConfig} className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:opacity-95" style={{ backgroundColor: themeColors.primary }}>
                       <Save size={13} />
                       حفظ إعدادات المستودع محلياً
                     </button>
@@ -2768,14 +2768,14 @@ export default function SettingsDashboard({
                       تزامن وصهر الكشوفات سحابياً بالكامل الآن (Reconcile)
                     </button>
                   </div>
-                </form>
+                </div>
               </div>
             )}
 
             {/* ====== TAB 9: ADMINISTRATIVE SECURITY ====== */}
             {activeTab === 'security' && (
               <div className="space-y-6 text-right" id="tab-security-workspace">
-                <form onSubmit={handleSecurityPassUpdate} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                   <h3 className="text-base font-black text-slate-800 flex items-center gap-1">
                     <KeyRound size={16} />
                     حماية بوابات السيستم وتحديث الرمز الأمني للمسؤل
@@ -2807,11 +2807,11 @@ export default function SettingsDashboard({
                     </div>
                   </div>
 
-                  <button type="submit" className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:scale-[1.01]" style={{ backgroundColor: themeColors.primary }}>
+                  <button type="button" onClick={handleSecurityPassUpdate} className="py-2.5 px-4 rounded-xl text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:scale-[1.01]" style={{ backgroundColor: themeColors.primary }}>
                     <Save size={13} />
                     تحديث الرمز السري لبوابة الإشراف آمنياً
                   </button>
-                </form>
+                </div>
               </div>
             )}
             
@@ -2940,7 +2940,7 @@ export default function SettingsDashboard({
       {/* --- INLINE EDIT USER MODAL WITH TEXT OVERWRITE FIELDS --- */}
       {editingUser && (
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200" id="editing-modal">
-          <form onSubmit={handleUpdateUserValue} className="bg-white rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl border border-slate-100 text-right flex flex-col max-h-[88vh]" id="editing-form">
+          <div className="bg-white rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl border border-slate-100 text-right flex flex-col max-h-[88vh]" id="editing-form">
             <header className="px-5 py-3 text-white flex items-center justify-between bg-amber-600">
               <span className="text-xs font-black">تحرير وتصحيح بيانات: {editingUser.fullName}</span>
               <button type="button" onClick={() => setEditingUser(null)} className="text-white hover:text-slate-100 cursor-pointer">
@@ -2997,11 +2997,11 @@ export default function SettingsDashboard({
               <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 border border-slate-200 rounded-xl text-slate-700 bg-white font-bold cursor-pointer">
                 إلغاء التعديل
               </button>
-              <button type="submit" className="px-5 py-2 rounded-xl text-white font-bold bg-amber-600 hover:bg-amber-700 hover:opacity-95 shadow-md cursor-pointer">
+              <button onClick={handleUpdateUserValue} type="button" className="px-5 py-2 rounded-xl text-white font-bold bg-amber-600 hover:bg-amber-700 hover:opacity-95 shadow-md cursor-pointer">
                 تطبيق وحفظ التعديلات رياديـاً
               </button>
             </footer>
-          </form>
+          </div>
         </div>
       )}
 
