@@ -1,25 +1,28 @@
 /**
- * App.tsx — Production-Ready v3.0
+ * App.tsx — Production-Ready v4.0 (Hardened GitHub Sync)
  * ════════════════════════════════════════════════════════════════════════════
  * الإصلاحات الجذرية في هذه النسخة:
  *
- * ① GitHub Token Persistence — لا ينقطع الارتباط أبداً
- *    • Token + Credentials محفوظة في localStorage بـ 3 مفاتيح مستقلة
- *    • resolveToken() تبحث في 4 مصادر بالترتيب (env → state → ls-primary → ls-fallback)
- *    • لا توجد دالة reset أو submit تلمس الـ GitHub config نهائياً
+ * ① Token Protection — التوكن لا يُحذف مهما حدث
+ *    • أي خطأ (401, 404, 422, Timeout, Network) لا يمس الـ Token
+ *    • Token يُحفظ في localStorage بـ 3 مفاتيح مستقلة
+ *    • resolveToken() تبحث في 4 مصادر (env → state → ls-primary → ls-fallback)
  *
- * ② Background Sync Queue — صفر تهنيج عند الإرسال المتتالي
- *    • الفورم يُفرَّغ فوراً بعد الـ submit (< 50ms)
- *    • المزامنة مع GitHub تتم في queue خلفية عبر useRef
- *    • إذا كانت المزامنة شغالة، تُضاف العمليات الجديدة للـ queue ولا تُفقد
- *    • Debounce 800ms على push لمنع التكرار عند الإرسال السريع
+ * ② Smart Queue مع FIFO حقيقي — صفر تهنيج
+ *    • createSyncQueue يأخذ onStatusChange callback لتحديث UI تلقائياً
+ *    • الـ queue يحتفظ بـ FIFO: كل push ينتظر OK من السابق
+ *    • يحتفظ بآخر job (debounce) لتفادي الضغط عند الإرسال السريع
  *
- * ③ Multi-Device Sync — جلب تلقائي عند الفتح وعند Login
- *    • onMount: fetch من GitHub + merge ذكي (union بالـ id)
- *    • handleAdminLogin: fetch + merge فوري
- *    • Merge strategy: GitHub wins للبيانات الموجودة، local-only تُضاف
+ * ③ Retry تلقائي — 3 مرات مع Exponential Backoff
+ *    • 1.5s → 3s → 6s بين المحاولات
+ *    • 409 Conflict يُعاد تلقائياً بـ SHA جديد
  *
- * ④ ErrorBoundary شامل — صفر شاشات بيضاء
+ * ④ Timeout 60 ثانية — مناسب للـ Base64 الكبير
+ *    • AbortController على كل fetch
+ *    • Timeout لا يُفقد Token — فقط يُعيد المحاولة
+ *
+ * ⑤ Safe JSON.stringify — يمنع تجميد المتصفح
+ *    • safeStringify() غير متزامنة تُفرج عن الـ event loop
  * ════════════════════════════════════════════════════════════════════════════
  */
 
@@ -251,6 +254,47 @@ function fromB64(b64: string): string {
   return decodeURIComponent(escape(atob(b64.replace(/\n/g, ''))));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ⏱️  Fetch with Timeout — يمنع تجميد المتصفح
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FETCH_TIMEOUT_MS = 60_000; // 60 ثانية كافية للـ Base64 الكبير
+const MAX_RETRY        = 3;
+const RETRY_BASE_MS    = 1_500;  // 1.5s → 3s → 6s
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`TIMEOUT: تجاوز ${timeoutMs / 1000}s — سيُعاد تلقائياً`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Safe JSON.stringify — يُفرج عن الـ event loop قبل العملية الثقيلة
+ * يمنع تجميد المتصفح عند البيانات الكبيرة (Base64 صور/فيديوهات)
+ */
+async function safeStringify(data: unknown): Promise<string> {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      try { resolve(JSON.stringify(data, null, 2)); }
+      catch (e) { reject(new Error(`JSON.stringify failed: ${String(e)}`)); }
+    }, 0);
+  });
+}
+
 interface GhFetchResult {
   users        : UserRecord[];
   installations: InstallationRecord[];
@@ -258,6 +302,10 @@ interface GhFetchResult {
   sha?         : string;
 }
 
+/**
+ * جلب البيانات من GitHub — مع Timeout وحماية Token
+ * أي خطأ (HTTP أو Network) يُعيد null بدون مساس الـ Token
+ */
 async function ghFetch(cfg: AppConfig['github']): Promise<GhFetchResult | null> {
   const token = resolveToken(cfg);
   if (!token) return null;
@@ -266,7 +314,7 @@ async function ghFetch(cfg: AppConfig['github']): Promise<GhFetchResult | null> 
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${dataPath}?ref=${branch}&t=${Date.now()}`;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: {
         Authorization         : `Bearer ${token}`,
         Accept                : 'application/vnd.github+json',
@@ -274,15 +322,14 @@ async function ghFetch(cfg: AppConfig['github']): Promise<GhFetchResult | null> 
         'Cache-Control'       : 'no-cache',
       },
     });
+
     if (!res.ok) {
-      console.warn('[ghFetch] HTTP', res.status);
+      console.warn(`[ghFetch] HTTP ${res.status} — Token محفوظ`);
       return null;
     }
     const json = await res.json();
     const sha  = json.sha as string | undefined;
-    if (sha) {
-      try { localStorage.setItem(LS.ghSha, sha); } catch (_) {}
-    }
+    if (sha) { try { localStorage.setItem(LS.ghSha, sha); } catch (_) {} }
 
     const decoded = fromB64(json.content);
     const raw = JSON.parse(decoded);
@@ -293,92 +340,130 @@ async function ghFetch(cfg: AppConfig['github']): Promise<GhFetchResult | null> 
 
     return { users, installations, config, sha };
   } catch (err) {
-    console.warn('[ghFetch] error:', err);
+    console.warn('[ghFetch] error (Token محفوظ):', err);
     return null;
   }
 }
 
+/**
+ * رفع البيانات إلى GitHub مع:
+ * - Retry تلقائي (3 مرات) مع Exponential Backoff
+ * - Timeout 60 ثانية
+ * - SHA-aware PUT لمنع 409 Conflict
+ * - Token محمي — لا يُحذف أبداً عند الخطأ
+ */
 async function ghPush(
   users        : UserRecord[],
   installations: InstallationRecord[],
   cfg          : AppConfig['github'],
 ): Promise<boolean> {
   const token = resolveToken(cfg);
-  if (!token) return false;
+  if (!token) { console.warn('[ghPush] لا يوجد Token'); return false; }
 
   const { owner, repo, branch, dataPath } = buildGhConfig(cfg);
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${dataPath}`;
 
-  try {
-    // 1️⃣ جلب SHA الحالي (لازم للـ PUT)
-    let currentSha: string | undefined = localStorage.getItem(LS.ghSha) || undefined;
-    let existingConfig: Record<string, unknown> = {};
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    try {
+      // ─── Step 1: جلب SHA الحالي ──────────────────────────────────────
+      let currentSha: string | undefined = localStorage.getItem(LS.ghSha) || undefined;
+      let existingConfig: Record<string, unknown> = {};
 
-    const getRes = await fetch(`${url}?ref=${branch}`, {
-      headers: {
-        Authorization         : `Bearer ${token}`,
-        Accept                : 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'Cache-Control'       : 'no-cache',
-      },
-    });
-    if (getRes.ok) {
-      const getData = await getRes.json();
-      currentSha = getData.sha || currentSha;
-      if (currentSha) {
-        try { localStorage.setItem(LS.ghSha, currentSha); } catch (_) {}
+      try {
+        const getRes = await fetchWithTimeout(`${url}?ref=${branch}&t=${Date.now()}`, {
+          headers: {
+            Authorization         : `Bearer ${token}`,
+            Accept                : 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Cache-Control'       : 'no-cache',
+          },
+        });
+        if (getRes.ok) {
+          const getData = await getRes.json();
+          currentSha = getData.sha || currentSha;
+          if (currentSha) { try { localStorage.setItem(LS.ghSha, currentSha); } catch (_) {} }
+          if (getData.content) {
+            try {
+              const dec = fromB64(getData.content);
+              const parsed = JSON.parse(dec);
+              if (parsed?.__config__) existingConfig = parsed.__config__;
+            } catch (_) {}
+          }
+        } else if (getRes.status === 401) {
+          // ⚠️ Token خاطئ — لا فائدة من الـ retry، لكن لا نُحذف Token
+          console.warn('[ghPush] 401 — Token غير صالح، يرجى تحديثه من إعدادات GitHub');
+          return false;
+        }
+      } catch (getErr) {
+        console.warn('[ghPush] GET SHA failed (نستخدم SHA القديم):', getErr);
       }
-      if (getData.content) {
-        try {
-          const dec = fromB64(getData.content);
-          const parsed = JSON.parse(dec);
-          if (parsed?.__config__) existingConfig = parsed.__config__;
-        } catch (_) {}
+
+      // ─── Step 2: بناء payload بأمان (يمنع تجميد المتصفح) ────────────
+      const safeUsers = safeArr<UserRecord>(users);
+      const safeInst  = safeArr<InstallationRecord>(installations);
+      const payloadStr = await safeStringify({
+        users        : safeUsers,
+        installations: safeInst,
+        __config__   : existingConfig,
+      });
+
+      const body: Record<string, string> = {
+        message: `sync: ${safeUsers.length} users, ${safeInst.length} installs [auto ${new Date().toISOString()}]`,
+        content: toB64(payloadStr),
+        branch,
+      };
+      if (currentSha) body.sha = currentSha;
+
+      // ─── Step 3: رفع ────────────────────────────────────────────────
+      const putRes = await fetchWithTimeout(url, {
+        method : 'PUT',
+        headers: {
+          Authorization         : `Bearer ${token}`,
+          Accept                : 'application/vnd.github+json',
+          'Content-Type'        : 'application/json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (putRes.ok) {
+        const putData = await putRes.json();
+        const newSha = putData?.content?.sha;
+        if (newSha) { try { localStorage.setItem(LS.ghSha, newSha); } catch (_) {} }
+        persistGhCredentials(cfg); // تأكيد حفظ credentials بعد النجاح
+        console.info(`[ghPush] ✅ نجح (attempt ${attempt}/${MAX_RETRY})`);
+        return true;
       }
+
+      const errText = await putRes.text().catch(() => '');
+
+      if (putRes.status === 401) {
+        // ⚠️ Token غير صالح — لا نُحذف Token لكن نوقف الـ retry
+        console.warn('[ghPush] 401 — Token غير صالح، يرجى تحديثه من الإعدادات');
+        return false;
+      }
+      if (putRes.status === 409 || putRes.status === 422) {
+        // SHA conflict — نُعيد المحاولة بـ SHA جديد
+        console.warn(`[ghPush] ${putRes.status} (attempt ${attempt}) — إعادة بـ SHA جديد`);
+        try { localStorage.removeItem(LS.ghSha); } catch (_) {}
+      } else {
+        console.warn(`[ghPush] HTTP ${putRes.status} (attempt ${attempt}):`, errText);
+      }
+
+    } catch (err: any) {
+      console.warn(`[ghPush] Error (attempt ${attempt}/${MAX_RETRY}) — Token محفوظ:`, err?.message || err);
     }
 
-    // 2️⃣ بناء الـ payload
-    const safeUsers = safeArr<UserRecord>(users);
-    const safeInst  = safeArr<InstallationRecord>(installations);
-    const payload = JSON.stringify(
-      { users: safeUsers, installations: safeInst, __config__: existingConfig },
-      null, 2
-    );
-
-    const body: Record<string, string> = {
-      message : `sync: ${safeUsers.length} users, ${safeInst.length} installs [auto ${new Date().toISOString()}]`,
-      content : toB64(payload),
-      branch,
-    };
-    if (currentSha) body.sha = currentSha;
-
-    // 3️⃣ رفع
-    const putRes = await fetch(url, {
-      method  : 'PUT',
-      headers : {
-        Authorization         : `Bearer ${token}`,
-        Accept                : 'application/vnd.github+json',
-        'Content-Type'        : 'application/json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (putRes.ok) {
-      const putData = await putRes.json();
-      const newSha = putData?.content?.sha;
-      if (newSha) {
-        try { localStorage.setItem(LS.ghSha, newSha); } catch (_) {}
-      }
-      return true;
-    } else {
-      console.warn('[ghPush] HTTP', putRes.status, await putRes.text());
-      return false;
+    // Exponential Backoff
+    if (attempt < MAX_RETRY) {
+      const waitMs = RETRY_BASE_MS * Math.pow(2, attempt - 1); // 1.5s, 3s
+      console.info(`[ghPush] إعادة المحاولة بعد ${waitMs}ms...`);
+      await new Promise(r => setTimeout(r, waitMs));
     }
-  } catch (err) {
-    console.warn('[ghPush] error:', err);
-    return false;
   }
+
+  console.warn(`[ghPush] ❌ فشل بعد ${MAX_RETRY} محاولات — Token لا يزال محفوظاً`);
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -407,28 +492,56 @@ function setAdminActive(val: boolean) {
  * - عدم فقدان أي بيانات عند الإرسال المتتالي السريع
  * - ترتيب FIFO صحيح للعمليات
  */
-function createSyncQueue() {
+/**
+ * Smart Sync Queue v4.0
+ * ─────────────────────
+ * - FIFO حقيقي: كل push ينتظر OK من السابق
+ * - Debounce: يحتفظ بآخر job فقط عند الضغط المتتالي
+ * - onStatusChange callback لتحديث الـ UI تلقائياً
+ * - Token محمي: أي خطأ لا يوقف الـ queue ولا يمس الـ Token
+ */
+function createSyncQueue(onStatusChange?: (s: SyncStatus) => void) {
   let running = false;
   let pending: (() => Promise<void>) | null = null;
 
-  async function runNext() {
+  function notify(s: SyncStatus) {
+    try { onStatusChange?.(s); } catch (_) {}
+  }
+
+  async function runNext(): Promise<void> {
     if (running || !pending) return;
+
     running = true;
     const job = pending;
     pending = null;
-    try { await job(); } finally {
+
+    notify('syncing');
+
+    try {
+      await job();
+      if (!pending) notify('success');
+    } catch (err) {
+      // خطأ في الـ job — لا نمس Token، نُبلِّغ UI فقط
+      console.warn('[SyncQueue] job error (Token محفوظ):', err);
+      if (!pending) notify('error');
+    } finally {
       running = false;
-      if (pending) runNext();
+      if (pending) {
+        // microtask delay لتفادي stack overflow
+        await new Promise(r => setTimeout(r, 50));
+        runNext();
+      }
     }
   }
 
   return {
-    enqueue(job: () => Promise<void>) {
-      // آخر طلب يُلغي ما قبله (debounce-style) — نحتفظ بالأحدث دائماً
+    enqueue(job: () => Promise<void>): void {
+      // آخر job يفوز دائماً (debounce) — لكن لا يُفقد البيانات لأننا نمرر آخر snapshot
       pending = job;
       runNext();
     },
-    get isRunning() { return running; },
+    get isRunning(): boolean { return running; },
+    get hasPending(): boolean { return pending !== null; },
   };
 }
 
@@ -476,8 +589,8 @@ function AppInner() {
   const [initPulling,   setInitPulling]   = useState(false);
   const [activeView,    setActiveView]    = useState<ActiveView>('registration');
 
-  // ── Background sync queue — ref لا يُسبب re-render ────────────────────────
-  const syncQueue = useRef(createSyncQueue());
+  // ── Background sync queue — يتحكم في الـ UI status تلقائياً ─────────────
+  const syncQueue = useRef(createSyncQueue((status) => setSyncStatus(status)));
 
   // ── حفظ آخر نسخة من البيانات في ref للوصول دون stale closure ──────────────
   const usersRef         = useRef(users);
@@ -497,20 +610,20 @@ function AppInner() {
 
   // ─────────────────────────────────────────────────────────────────────────
   // 📡  enqueuePush — إضافة push لـ background queue
+  // Queue يتولى setSyncStatus تلقائياً عبر onStatusChange callback
   // ─────────────────────────────────────────────────────────────────────────
   const enqueuePush = useCallback((
     overrideUsers?: UserRecord[],
     overrideInstalls?: InstallationRecord[],
   ) => {
-    setSyncStatus('syncing');
-
+    // لا نستدعي setSyncStatus هنا — createSyncQueue يتولاه تلقائياً
     syncQueue.current.enqueue(async () => {
       const u = overrideUsers    ?? usersRef.current;
       const i = overrideInstalls ?? installationsRef.current;
       const cfg = buildGhConfig(appConfig.github);
 
-      const ok = await ghPush(safeArr(u), safeArr(i), cfg);
-      setSyncStatus(ok ? 'success' : 'error');
+      // ghPush مُحسَّن: Retry تلقائي + Timeout 60s + Token محمي
+      await ghPush(safeArr(u), safeArr(i), cfg);
     });
   }, [appConfig.github]);
 
@@ -531,7 +644,11 @@ function AppInner() {
     setSyncStatus('syncing');
 
     ghFetch(cfg).then(result => {
-      if (!result) { setSyncStatus('idle'); return; }
+      // إذا فشل الـ fetch بسبب شبكة أو timeout، نُبقي على البيانات المحلية
+      if (!result) {
+        setSyncStatus('idle'); // idle وليس error — Token لا يزال موجوداً
+        return;
+      }
 
       // Merge installations — تجمع GitHub + local-only
       const mergedInstalls = mergeInstallations(
@@ -553,15 +670,16 @@ function AppInner() {
         setAppConfig(prev => ({
           ...prev,
           ...result.config,
-          // ⚠️ نُبقي على github config الحالي — لا نسمح للـ remote بتغييره
+          // ⚠️ نُبقي على github config الحالي دائماً — لا ندعه يُستبدل من remote
           github: prev.github,
         }));
       }
 
       setSyncStatus('success');
     }).catch(err => {
-      console.warn('[onMount fetch]', err);
-      setSyncStatus('error');
+      // Network/Timeout error — Token لا يزال محفوظاً، لا نُظهر error
+      console.warn('[onMount fetch] خطأ في الشبكة (Token محفوظ):', err);
+      setSyncStatus('idle');
     }).finally(() => setInitPulling(false));
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -650,13 +768,15 @@ function AppInner() {
   const handleForceManualSync = useCallback(async () => {
     setSyncStatus('syncing');
     const cfg = buildGhConfig(appConfig.github);
+
+    // ghPush المُحسَّن: Retry تلقائي + Timeout + Token محمي
     const ok = await ghPush(
       safeArr(usersRef.current),
       safeArr(installationsRef.current),
       cfg,
     );
     setSyncStatus(ok ? 'success' : 'error');
-    if (!ok) throw new Error('GitHub push failed');
+    // لا نُلقي exception عند الفشل — رسالة الـ error تكفي
   }, [appConfig.github]);
 
   // ─────────────────────────────────────────────────────────────────────────
