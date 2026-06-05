@@ -851,5 +851,3 @@ export default function InstallationForm({
     </div>
   );
 }
-ENDOFFILE
-echo "Lines: $(wc -l < /home/claude/InstallationForm.tsx)"
