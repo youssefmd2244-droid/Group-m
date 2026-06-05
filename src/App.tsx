@@ -1,15 +1,15 @@
 /**
- * App.tsx — النسخة المحدثة الكاملة مع قسم التركيبات
+ * App.tsx — النسخة المُصلحة الكاملة
  * 
- * التحديثات:
- * 1. قسم "تركيبات" علني في القائمة الرئيسية
- * 2. قراءة data.json من GitHub عند التحميل (onMount)
- * 3. Hardcoded repo defaults
- * 4. بدون <form> في شاشة القفل
- * 5. Optional chaining في كل مكان
+ * الإصلاحات:
+ * 1. التركيبات تظهر لكل المستخدمين (مش بس الأدمن)
+ * 2. جلسة الأدمن في localStorage (مش sessionStorage) عشان ما تتمسحش مع ريفريش
+ * 3. GitHub لا ينقطع — token يتحفظ في localStorage كـ fallback
+ * 4. مشكلة الصفحة البيضاء محلولة — إزالة أي form submit
+ * 5. البيانات تتزامن من GitHub عند كل دخول
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Settings, Sparkles, RefreshCw, CheckCircle2, Wrench, ClipboardList
 } from 'lucide-react';
@@ -67,6 +67,21 @@ const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
+// ── Helpers to persist admin session across refreshes ─────────────────────────
+
+const ADMIN_KEY = 'group_m_admin_ok';
+
+function isAdminActive(): boolean {
+  return localStorage.getItem(ADMIN_KEY) === '1';
+}
+function setAdminActive(val: boolean) {
+  if (val) localStorage.setItem(ADMIN_KEY, '1');
+  else localStorage.removeItem(ADMIN_KEY);
+  // keep sessionStorage in sync for legacy code
+  if (val) sessionStorage.setItem('group_m_admin_session', 'active');
+  else sessionStorage.removeItem('group_m_admin_session');
+}
+
 // ── GitHub helpers ─────────────────────────────────────────────────────────────
 
 function toBase64GH(str: string): string {
@@ -76,14 +91,26 @@ function fromBase64GH(b64: string): string {
   return decodeURIComponent(escape(atob(b64.replace(/\n/g, ''))));
 }
 
+function resolveToken(cfg?: AppConfig['github']): string {
+  return (
+    (import.meta as any).env?.VITE_GITHUB_TOKEN ||
+    cfg?.token ||
+    localStorage.getItem('gh_token_fallback') ||
+    ''
+  );
+}
+
 async function fetchDataFromGithub(cfg: AppConfig['github']): Promise<{ users: UserRecord[]; installations: InstallationRecord[]; config?: Partial<AppConfig> } | null> {
-  const token = cfg?.token || (import.meta as any).env?.VITE_GITHUB_TOKEN || '';
+  const token = resolveToken(cfg);
   const owner  = cfg?.owner  || HARDCODED_OWNER;
   const repo   = cfg?.repo   || HARDCODED_REPO;
   const branch = cfg?.branch || HARDCODED_BRANCH;
   const path   = cfg?.dataPath || HARDCODED_DATA_PATH;
 
   if (!token) return null;
+
+  // Persist token for future refreshes
+  if (token) localStorage.setItem('gh_token_fallback', token);
 
   try {
     const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
@@ -114,7 +141,7 @@ async function pushDataToGithub(
   installations: InstallationRecord[],
   cfg: AppConfig['github']
 ): Promise<void> {
-  const token = cfg?.token || (import.meta as any).env?.VITE_GITHUB_TOKEN || '';
+  const token = resolveToken(cfg);
   const owner  = cfg?.owner  || HARDCODED_OWNER;
   const repo   = cfg?.repo   || HARDCODED_REPO;
   const branch = cfg?.branch || HARDCODED_BRANCH;
@@ -175,7 +202,6 @@ export default function App() {
     if (cached) {
       try {
         const parsed = JSON.parse(cached) as AppConfig;
-        // Always ensure hardcoded defaults are present
         return {
           ...DEFAULT_CONFIG,
           ...parsed,
@@ -186,7 +212,7 @@ export default function App() {
             repo:  parsed.github?.repo  || HARDCODED_REPO,
             branch: parsed.github?.branch || HARDCODED_BRANCH,
             dataPath: parsed.github?.dataPath || HARDCODED_DATA_PATH,
-            token: (import.meta as any).env?.VITE_GITHUB_TOKEN || parsed.github?.token || '',
+            token: (import.meta as any).env?.VITE_GITHUB_TOKEN || parsed.github?.token || localStorage.getItem('gh_token_fallback') || '',
           },
         };
       } catch (_) {}
@@ -194,12 +220,15 @@ export default function App() {
     return DEFAULT_CONFIG;
   });
 
+  // ─── Admin state: persisted in localStorage so refresh doesn't log out ───
+  const [isAdmin, setIsAdmin] = useState(() => isAdminActive());
+
   const [users, setUsers] = useState<UserRecord[]>(() => {
-    const isAdmin = sessionStorage.getItem('group_m_admin_session') === 'active';
-    if (!isAdmin) return [];
+    if (!isAdminActive()) return [];
     try { return JSON.parse(localStorage.getItem('group_m_users') || '[]'); } catch (_) { return []; }
   });
 
+  // ─── Installations: public — always load from localStorage ───
   const [installations, setInstallations] = useState<InstallationRecord[]>(() => {
     try { return JSON.parse(localStorage.getItem('group_m_installations') || '[]'); } catch (_) { return []; }
   });
@@ -207,15 +236,16 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [initPulling, setInitPulling] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(() => sessionStorage.getItem('group_m_admin_session') === 'active');
   const [activeView, setActiveView] = useState<ActiveView>('registration');
 
-  // ── onMount: fetch from GitHub directly ────────────────────────────────────
+  // ── onMount: fetch from GitHub ──────────────────────────────────────────
   useEffect(() => {
-    const envToken = (import.meta as any).env?.VITE_GITHUB_TOKEN || '';
+    const token = resolveToken(appConfig.github);
+    if (!token) return;
+
     const cfg: AppConfig['github'] = {
       ...appConfig.github,
-      token: envToken || appConfig.github?.token || '',
+      token,
       owner: appConfig.github?.owner || HARDCODED_OWNER,
       repo:  appConfig.github?.repo  || HARDCODED_REPO,
       branch: appConfig.github?.branch || HARDCODED_BRANCH,
@@ -226,36 +256,33 @@ export default function App() {
 
     document.title = appConfig.websiteTitle || 'Group m';
 
-    if (cfg.token) {
-      setInitPulling(true);
-      setSyncStatus('syncing');
-      fetchDataFromGithub(cfg).then(result => {
-        if (result) {
-          // Update installations for everyone (public data)
-          setInstallations(result.installations);
-          localStorage.setItem('group_m_installations', JSON.stringify(result.installations));
+    setInitPulling(true);
+    setSyncStatus('syncing');
+    fetchDataFromGithub(cfg).then(result => {
+      if (result) {
+        // ✅ التركيبات تتحمل للكل — مش بس الأدمن
+        setInstallations(result.installations);
+        localStorage.setItem('group_m_installations', JSON.stringify(result.installations));
 
-          // Update users only for admins
-          if (isAdmin && result.users) {
-            setUsers(result.users);
-            localStorage.setItem('group_m_users', JSON.stringify(result.users));
-          }
-
-          // Merge config if available
-          if (result.config) {
-            setAppConfig(prev => ({
-              ...prev,
-              ...result.config,
-              github: { ...prev.github, ...((result.config as any)?.github || {}), token: cfg.token },
-            }));
-          }
-          setSyncStatus('success');
-        } else {
-          setSyncStatus('idle');
+        // المستخدمون للأدمن فقط
+        if (isAdmin && result.users) {
+          setUsers(result.users);
+          localStorage.setItem('group_m_users', JSON.stringify(result.users));
         }
-      }).catch(() => setSyncStatus('error'))
-        .finally(() => setInitPulling(false));
-    }
+
+        if (result.config) {
+          setAppConfig(prev => ({
+            ...prev,
+            ...result.config,
+            github: { ...prev.github, ...((result.config as any)?.github || {}), token: cfg.token },
+          }));
+        }
+        setSyncStatus('success');
+      } else {
+        setSyncStatus('idle');
+      }
+    }).catch(() => setSyncStatus('error'))
+      .finally(() => setInitPulling(false));
   }, []);
 
   useEffect(() => {
@@ -274,12 +301,10 @@ export default function App() {
     setInstallations(updated);
     localStorage.setItem('group_m_installations', JSON.stringify(updated));
 
-    // Also update config so admin panel sees the data
     const newConfig = { ...appConfig, installations: updated };
     setAppConfig(newConfig);
     localStorage.setItem('group_m_config', JSON.stringify(newConfig));
 
-    // Push to GitHub in background
     setSyncStatus('syncing');
     pushDataToGithub(users, updated, appConfig.github)
       .then(() => setSyncStatus('success'))
@@ -302,9 +327,12 @@ export default function App() {
   };
 
   const handleUpdateConfig = async (newConfig: AppConfig) => {
+    // حفظ التوكن دايمًا
+    if (newConfig.github?.token) {
+      localStorage.setItem('gh_token_fallback', newConfig.github.token);
+    }
     setAppConfig(newConfig);
     localStorage.setItem('group_m_config', JSON.stringify(newConfig));
-    // Also sync installations from config
     if (newConfig.installations) {
       setInstallations(newConfig.installations);
       localStorage.setItem('group_m_installations', JSON.stringify(newConfig.installations));
@@ -331,16 +359,30 @@ export default function App() {
     }
   };
 
+  const handleAdminLogin = () => {
+    setIsAdmin(true);
+    setAdminActive(true);
+    // اسحب بيانات fresh من GitHub
+    fetchDataFromGithub(appConfig.github).then(result => {
+      if (result?.users) {
+        setUsers(result.users);
+        localStorage.setItem('group_m_users', JSON.stringify(result.users));
+      }
+      if (result?.installations) {
+        setInstallations(result.installations);
+        localStorage.setItem('group_m_installations', JSON.stringify(result.installations));
+      }
+    });
+  };
+
   const handleAdminLogout = () => {
     setIsAdmin(false);
+    setAdminActive(false);
     setUsers([]);
     localStorage.removeItem('group_m_users');
-    sessionStorage.removeItem('group_m_admin_session');
   };
 
   const theme = appConfig.theme || DEFAULT_THEME;
-
-  // Worker names from existing installations (for the public form)
   const workerNames = Array.from(new Set(installations.map(i => i.workerName).filter(Boolean)));
 
   return (
@@ -403,7 +445,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Navigation tabs (Registration / Installations) ── */}
+      {/* ── Navigation tabs ── */}
       <div className="w-full bg-white border-b border-slate-200 flex items-center justify-center gap-1 px-4 py-2 sticky top-[64px] z-30 shadow-sm">
         <button
           onClick={() => setActiveView('registration')}
@@ -467,16 +509,96 @@ export default function App() {
         theme={theme}
       />
 
-      {/* ── Footer (unchanged from original) ── */}
-      <footer className="w-full mt-10 pb-0">
+      {/* ── Footer — Icon Code ── */}
+      <footer className="w-full mt-10 pb-0" dir="rtl">
         <div
           className="relative overflow-hidden"
           style={{ background: 'linear-gradient(135deg, #0a0f1e 0%, #0d1a2e 40%, #050d1a 100%)' }}
         >
+          {/* top gradient line */}
           <div style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #14b8a6, #3b82f6, #8b5cf6, transparent)' }} />
-          <div className="max-w-4xl mx-auto px-6 py-8 text-center">
-            <p style={{ fontSize: '11px', color: '#334155', fontWeight: '600' }}>
-              © {new Date().getFullYear()} <span style={{ color: '#14b8a6' }}>Icon Code</span> — جميع الحقوق محفوظة.
+
+          <div className="max-w-4xl mx-auto px-6 py-10 flex flex-col items-center gap-5 text-center">
+
+            {/* Logo + Brand */}
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-lg"
+                style={{ background: 'linear-gradient(135deg, #14b8a6, #3b82f6)' }}>
+                IC
+              </div>
+              <div className="text-right">
+                <p className="text-white font-black text-lg leading-none">Icon Code</p>
+                <p className="text-slate-400 text-[10px] font-mono tracking-widest mt-0.5">EST. 2023 · EGYPT</p>
+              </div>
+            </div>
+
+            {/* Description */}
+            <p className="text-slate-400 text-xs leading-relaxed max-w-lg">
+              شركة <span className="text-teal-400 font-bold">Icon Code</span> متخصصة في تقديم الحلول البرمجية والرقمية المتكاملة — من تصميم المواقع والمتاجر الإلكترونية، أنظمة الكاشير، هندسة GRC، الجرافيك، ديزاين، تصاميم الملابس والمباني، التوزيع على جميع المنصات، الفوتوشوب، إنشاء الشعارات والتوجهات والبراندات، ودمج تقنيات الذكاء الاصطناعي AI لتطوير أرأحت المعايير العالمية.
+            </p>
+
+            {/* Tags */}
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {['تصميم مواقع','متاجر إلكترونية','كاشير','GRC','جرافيك ديزاين','شعارات وبراند','تصاميم ملابس','ذكاء اصطناعي','فوتوشوب','ترويج المنصات'].map(tag => (
+                <span key={tag} className="px-2.5 py-1 rounded-full text-[10px] font-bold text-slate-300 border border-slate-700"
+                  style={{ background: 'rgba(255,255,255,0.04)' }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+
+            {/* Contact cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
+              {/* يوسف */}
+              <div className="rounded-2xl p-4 flex flex-col gap-2.5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                  <span className="text-white text-xs font-black">م. يوسف محمد السيد محمد</span>
+                </div>
+                <p className="text-slate-400 text-[10px]">المدير التنفيذي / التواصل التجاري</p>
+                <div className="flex gap-2">
+                  <a href="https://wa.me/201094555299" target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold text-white cursor-pointer"
+                    style={{ background: '#25D366' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.123.554 4.12 1.523 5.851L.057 23.882l6.204-1.438A11.95 11.95 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.003-1.368l-.359-.214-3.722.862.932-3.628-.234-.374A9.818 9.818 0 1112 21.818z"/></svg>
+                    واتساب
+                  </a>
+                  <a href="tel:01094555299"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold text-white cursor-pointer"
+                    style={{ background: 'rgba(255,255,255,0.1)' }}>
+                    📞 01094555299
+                  </a>
+                </div>
+              </div>
+
+              {/* عمر */}
+              <div className="rounded-2xl p-4 flex flex-col gap-2.5" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                  <span className="text-white text-xs font-black">م. عمر محمد السيد محمد</span>
+                </div>
+                <p className="text-slate-400 text-[10px]">المدير التقني / تطوير الأنظمة</p>
+                <div className="flex gap-2">
+                  <a href="https://wa.me/201102293350" target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold text-white cursor-pointer"
+                    style={{ background: '#25D366' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.123.554 4.12 1.523 5.851L.057 23.882l6.204-1.438A11.95 11.95 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.003-1.368l-.359-.214-3.722.862.932-3.628-.234-.374A9.818 9.818 0 1112 21.818z"/></svg>
+                    واتساب
+                  </a>
+                  <a href="tel:01102293350"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold text-white cursor-pointer"
+                    style={{ background: 'rgba(255,255,255,0.1)' }}>
+                    📞 01102293350
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* copyright */}
+            <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', width: '100%' }} />
+            <p style={{ fontSize: '10px', color: '#334155', fontWeight: '600' }}>
+              © {new Date().getFullYear()} جميع حقوق التصميم والبرمجة محفوظة لصالح{' '}
+              <span style={{ color: '#14b8a6' }}>Icon Code</span>
             </p>
           </div>
         </div>
@@ -495,20 +617,7 @@ export default function App() {
             setShowSettings(false);
             handleAdminLogout();
           }}
-          onAdminLogin={() => {
-            setIsAdmin(true);
-            sessionStorage.setItem('group_m_admin_session', 'active');
-            // Pull fresh data for admin
-            fetchDataFromGithub(appConfig.github).then(result => {
-              if (result?.users) {
-                setUsers(result.users);
-                localStorage.setItem('group_m_users', JSON.stringify(result.users));
-              }
-              if (result?.installations) {
-                setInstallations(result.installations);
-              }
-            });
-          }}
+          onAdminLogin={handleAdminLogin}
           onAdminLogout={handleAdminLogout}
         />
       )}
