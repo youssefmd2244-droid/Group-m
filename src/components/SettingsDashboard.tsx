@@ -8,11 +8,11 @@ import {
   Wrench, Calculator, DollarSign, UserCheck, Download, BarChart2,
   Camera, Video, FileText, Trash, ChevronDown, ChevronUp, Package, Archive
 } from 'lucide-react';
-import { UserRecord, ContactNumber, ThemeConfig, AppConfig, GitHubConfig, FormFieldSchema, CustomFloatingButton, InstallationRecord, InstallationFieldSchema } from '../types';
+import { UserRecord, ContactNumber, ThemeConfig, AppConfig, FormFieldSchema, CustomFloatingButton, InstallationRecord, InstallationFieldSchema } from '../types';
 import { exportProfileAsPNG, printUserProfile, exportProfileAsHTML2Canvas } from '../utils/exportProfile';
 import { exportToExcel, exportToWord, exportToCSV, exportToImage, exportInstallationsToExcel, exportInstallationsToWord, exportInstallationsToPDF } from '../utils/advancedExports';
 import type { InstallationExportRecord } from '../utils/advancedExports';
-import { DownloadZipButton, downloadClientZip, DownloadUserZipButton } from '../utils/clientZipExport';
+import { DownloadZipButton } from '../utils/clientZipExport';
 
 // Re-exported for backward compatibility — defined in ../types
 export type { InstallationFieldSchema, InstallationRecord } from '../types';
@@ -23,7 +23,7 @@ interface SettingsDashboardProps {
   onUpdateConfig: (newConfig: AppConfig) => void;
   onUpdateUsers: (newUsers: UserRecord[]) => void;
   onTriggerSync: () => Promise<void>;
-  syncStatus: 'idle' | 'syncing' | 'success' | 'error';
+  syncStatus: 'idle' | 'syncing' | 'success' | 'error' | 'transient_fail';
   onClose: () => void;
   onAdminLogin?: () => void;
   onAdminLogout?: () => void;
@@ -1082,14 +1082,15 @@ export default function SettingsDashboard({
         <div className="bg-white px-6 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between text-xs font-semibold gap-2 shrink-0 text-slate-600" id="admin-sync-bar">
           <div className="flex items-center gap-2">
             <span className="flex h-2.5 w-2.5 relative">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${syncStatus === 'syncing' ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
-              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${syncStatus === 'syncing' ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${syncStatus === 'syncing' ? 'bg-amber-400' : syncStatus === 'transient_fail' ? 'bg-orange-400' : 'bg-emerald-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${syncStatus === 'syncing' ? 'bg-amber-500' : syncStatus === 'transient_fail' ? 'bg-orange-500' : 'bg-emerald-500'}`}></span>
             </span>
             <span className="text-slate-600">شبكة الاتصال السحابي (GitHub Stream API):</span>
-            <span className={`font-black ${syncStatus === 'syncing' ? 'text-amber-500' : syncStatus === 'success' ? 'text-emerald-500' : syncStatus === 'error' ? 'text-rose-500' : 'text-slate-600'}`}>
+            <span className={`font-black ${syncStatus === 'syncing' ? 'text-amber-500' : syncStatus === 'success' ? 'text-emerald-500' : syncStatus === 'error' ? 'text-rose-500' : syncStatus === 'transient_fail' ? 'text-orange-500' : 'text-slate-600'}`}>
               {syncStatus === 'syncing' && 'جاري محاذاة ورفع المرفقات...'}
               {syncStatus === 'success' && 'محدث ومُزامن بالكامل مع جيت هاب!'}
-              {syncStatus === 'error' && 'فشل مؤقت في التزامن — جاري إعادة المحاولة تلقائياً (التوكن محفوظ ✓)'}
+              {syncStatus === 'error' && 'خطأ في الـ Token — تحقق من إعدادات GitHub'}
+              {syncStatus === 'transient_fail' && 'فشل مؤقت في التزامن — جاري إعادة المحاولة تلقائياً (التوكن محفوظ ✓)'}
               {syncStatus === 'idle' && 'جاهز / تخزين محلي وتلقائي'}
             </span>
           </div>
@@ -1374,7 +1375,7 @@ export default function SettingsDashboard({
                                             </button>
                                             <button
                                               onClick={() => {
-                                                downloadUserZip !== undefined && import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
+                                                import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
                                                 setActiveExportDropdown(null);
                                               }}
                                               className="w-full px-3.5 py-1.5 text-[10px] text-violet-700 hover:bg-violet-50 transition flex items-center justify-between font-bold"
