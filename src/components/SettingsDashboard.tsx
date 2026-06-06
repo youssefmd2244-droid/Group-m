@@ -8,14 +8,14 @@ import {
   Wrench, Calculator, DollarSign, UserCheck, Download, BarChart2,
   Camera, Video, FileText, Trash, ChevronDown, ChevronUp, Package, Archive
 } from 'lucide-react';
-import { UserRecord, ContactNumber, ThemeConfig, AppConfig, GitHubConfig, FormFieldSchema, CustomFloatingButton, InstallationFieldSchema, InstallationRecord } from '../types';
+import { UserRecord, ContactNumber, ThemeConfig, AppConfig, GitHubConfig, FormFieldSchema, CustomFloatingButton, InstallationRecord, InstallationFieldSchema } from '../types';
 import { exportProfileAsPNG, printUserProfile, exportProfileAsHTML2Canvas } from '../utils/exportProfile';
 import { exportToExcel, exportToWord, exportToCSV, exportToImage, exportInstallationsToExcel, exportInstallationsToWord, exportInstallationsToPDF } from '../utils/advancedExports';
 import type { InstallationExportRecord } from '../utils/advancedExports';
 import { DownloadZipButton, downloadClientZip, DownloadUserZipButton } from '../utils/clientZipExport';
 
-
-// ── InstallationFieldSchema & InstallationRecord imported from ../types ──
+// Re-exported for backward compatibility — defined in ../types
+export type { InstallationFieldSchema, InstallationRecord } from '../types';
 
 interface SettingsDashboardProps {
   appConfig: AppConfig;
@@ -1374,7 +1374,7 @@ export default function SettingsDashboard({
                                             </button>
                                             <button
                                               onClick={() => {
-                                                import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
+                                                downloadUserZip !== undefined && import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
                                                 setActiveExportDropdown(null);
                                               }}
                                               className="w-full px-3.5 py-1.5 text-[10px] text-violet-700 hover:bg-violet-50 transition flex items-center justify-between font-bold"
