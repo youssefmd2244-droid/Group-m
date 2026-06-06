@@ -952,6 +952,8 @@ function AppInner() {
     setUsers([]);
     setShowSettings(false);
     localStorage.removeItem(LS.users);
+    // مسح جلسة SettingsDashboard الداخلية أيضاً
+    localStorage.removeItem('group_m_admin_ok');
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
