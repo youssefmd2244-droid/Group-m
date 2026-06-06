@@ -8,46 +8,14 @@ import {
   Wrench, Calculator, DollarSign, UserCheck, Download, BarChart2,
   Camera, Video, FileText, Trash, ChevronDown, ChevronUp, Package, Archive
 } from 'lucide-react';
-import { UserRecord, ContactNumber, ThemeConfig, AppConfig, GitHubConfig, FormFieldSchema, CustomFloatingButton } from '../types';
+import { UserRecord, ContactNumber, ThemeConfig, AppConfig, GitHubConfig, FormFieldSchema, CustomFloatingButton, InstallationFieldSchema, InstallationRecord } from '../types';
 import { exportProfileAsPNG, printUserProfile, exportProfileAsHTML2Canvas } from '../utils/exportProfile';
 import { exportToExcel, exportToWord, exportToCSV, exportToImage, exportInstallationsToExcel, exportInstallationsToWord, exportInstallationsToPDF } from '../utils/advancedExports';
 import type { InstallationExportRecord } from '../utils/advancedExports';
 import { DownloadZipButton, downloadClientZip, DownloadUserZipButton } from '../utils/clientZipExport';
 
 
-// ── New Types for Installations ────────────────────────────────────────────
-
-export interface InstallationFieldSchema {
-  id: string;
-  name: string;
-  labelAr: string;
-  type: 'text' | 'number' | 'select' | 'tel';
-  required: boolean;
-  optionsAr?: string;
-  isEnabled: boolean;
-}
-
-export interface InstallationRecord {
-  id: string;
-  workerName: string;
-  clientName: string;
-  clientMobile: string;
-  clientLandline: string;
-  area: string;
-  buildingName: string;
-  buildingNumber: string;
-  installationsCount: number;
-  clientIdPhoto?: string;
-  thermalPhoto?: string;
-  boxPhoto?: string;
-  mainBoxPhoto?: string;
-  installationVideo?: string;
-  notes?: string;
-  customFields?: { [key: string]: string };
-  createdAt: string;
-  isPaid?: boolean;
-  paidAt?: string;
-}
+// ── InstallationFieldSchema & InstallationRecord imported from ../types ──
 
 interface SettingsDashboardProps {
   appConfig: AppConfig;
@@ -1406,7 +1374,7 @@ export default function SettingsDashboard({
                                             </button>
                                             <button
                                               onClick={() => {
-                                                downloadUserZip !== undefined && import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
+                                                import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
                                                 setActiveExportDropdown(null);
                                               }}
                                               className="w-full px-3.5 py-1.5 text-[10px] text-violet-700 hover:bg-violet-50 transition flex items-center justify-between font-bold"
