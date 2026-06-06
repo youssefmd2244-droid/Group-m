@@ -187,7 +187,13 @@ export default function SettingsDashboard({
   const [themeMessage, setThemeMessage] = useState('');
 
   const [ghToken, setGhToken] = useState(
-    appConfig.github.token || (import.meta.env.VITE_GITHUB_TOKEN as string) || ''
+    appConfig.github.token?.trim() ||
+    (import.meta as any).env?.VITE_GITHUB_TOKEN?.trim() ||
+    localStorage.getItem('gh_token_primary')?.trim() ||
+    localStorage.getItem('gh_token_backup_1')?.trim() ||
+    localStorage.getItem('gh_token_backup_2')?.trim() ||
+    localStorage.getItem('gh_token_fallback')?.trim() ||
+    ''
   );
   const [ghOwner, setGhOwner] = useState(appConfig.github.owner || 'youssefmd2244-droid');
   const [ghRepo, setGhRepo] = useState(appConfig.github.repo || 'Group-m');
@@ -435,9 +441,11 @@ export default function SettingsDashboard({
   // Multi-source token resolution — priority: state → env → localStorage
   const GH_TOKEN: string = (
     ghToken?.trim() ||
-    (import.meta as any).env?.VITE_GITHUB_TOKEN ||
-    (typeof process !== 'undefined' ? (process as any).env?.VITE_GITHUB_TOKEN : '') ||
-    localStorage.getItem('gh_token_fallback') ||
+    (import.meta as any).env?.VITE_GITHUB_TOKEN?.trim() ||
+    localStorage.getItem('gh_token_primary')?.trim() ||
+    localStorage.getItem('gh_token_backup_1')?.trim() ||
+    localStorage.getItem('gh_token_backup_2')?.trim() ||
+    localStorage.getItem('gh_token_fallback')?.trim() ||
     ''
   );
   // ✅ حفظ التوكن في localStorage كلما وجد
@@ -531,12 +539,8 @@ export default function SettingsDashboard({
     }
   };
 
-  // On admin login: pull fresh data from GitHub immediately
-  useEffect(() => {
-    if (isAuthenticated && GH_TOKEN) {
-      fetchUsersFromGithub();
-    }
-  }, [isAuthenticated]);
+  // Note: GitHub data fetch is handled by App.tsx handleAdminLogin
+  // No duplicate fetch here to avoid overwriting merged data
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -1092,7 +1096,7 @@ export default function SettingsDashboard({
               {syncStatus === 'syncing' && 'جاري محاذاة ورفع المرفقات...'}
               {syncStatus === 'success' && 'محدث ومُزامن بالكامل مع جيت هاب!'}
               {syncStatus === 'error' && 'خطأ في الـ Token — تحقق من إعدادات GitHub'}
-              {syncStatus === 'transient_fail' && 'فشل مؤقت في التزامن — جاري إعادة المحاولة تلقائياً (التوكن محفوظ ✓)'}
+              {syncStatus === 'transient_fail' && 'تأخر في الاتصال بـ GitHub — البيانات محفوظة محلياً ✓ (اضغط مزامنة للمحاولة)'}
               {syncStatus === 'idle' && 'جاهز / تخزين محلي وتلقائي'}
             </span>
           </div>
