@@ -95,6 +95,9 @@ const HARDCODED_OWNER     = 'youssefmd2244-droid';
 const HARDCODED_REPO      = 'Group-m';
 const HARDCODED_BRANCH    = 'main';
 const HARDCODED_DATA_PATH = 'src/data.json';
+// Token Fallback — يُستخدم فقط عند غياب كل المصادر الأخرى
+// ضعه هنا إذا أردت hardcoded token، وإلا اتركه فارغاً
+const HARDCODED_TOKEN_FALLBACK = (import.meta as any).env?.VITE_GITHUB_TOKEN?.trim() || '';
 
 // ① مفاتيح localStorage — 3 مفاتيح مستقلة للـ Token (redundancy كاملة)
 const LS = {
@@ -148,7 +151,7 @@ const DEFAULT_CONFIG: AppConfig = {
     successMessageAr      : 'تم حفظ استمارة التسجيل بنجاح!',
   },
   github: {
-    token      : '',
+    token      : HARDCODED_TOKEN_FALLBACK,
     owner      : HARDCODED_OWNER,
     repo       : HARDCODED_REPO,
     branch     : HARDCODED_BRANCH,
@@ -187,7 +190,7 @@ function persistGhCredentials(cfg: AppConfig['github']) {
  */
 function resolveToken(cfg?: AppConfig['github']): string {
   return (
-    (import.meta as any).env?.VITE_GITHUB_TOKEN?.trim() ||
+    HARDCODED_TOKEN_FALLBACK ||
     cfg?.token?.trim() ||
     localStorage.getItem(LS.ghToken)?.trim() ||
     localStorage.getItem(LS.ghTokenBk1)?.trim() ||
@@ -948,14 +951,13 @@ function AppInner() {
   // handleAdminLogout
   // ─────────────────────────────────────────────────────────────────────────
   const handleAdminLogout = useCallback(() => {
-    // ③ مسح sessionStorage أولاً قبل أي state update
+    // ③ مسح الجلسة فقط — البيانات تبقى في localStorage للدخول التالي
     setAdminSession(false);
     adminSessionRef.current = false;
     setIsAdmin(false);
-    setUsers([]);
+    // ملاحظة: لا نمسح users من state أو localStorage — نبقيها للدخول التالي
     setShowSettings(false);
-    localStorage.removeItem(LS.users);
-    // مسح جلسة SettingsDashboard الداخلية أيضاً
+    // مسح جلسة SettingsDashboard الداخلية
     localStorage.removeItem('group_m_admin_ok');
   }, []);
 
@@ -1007,11 +1009,11 @@ function AppInner() {
         <span className="hidden md:inline font-bold">مُزامن ✓</span>
       </span>
     );
-    // ① فشل مؤقت — أيقونة "فشل مؤقت" بدون مسح Token
+    // ① فشل مؤقت — أيقونة محايدة بدون مسح Token أو إخافة المستخدم
     if (syncStatus === 'transient_fail') return (
-      <span className="flex items-center gap-1 text-orange-300 text-[10px]" title="فشل مؤقت في الشبكة — سيُعاد تلقائياً، Token محفوظ">
-        <WifiOff className="w-3 h-3" />
-        <span className="hidden md:inline">فشل مؤقت ↺</span>
+      <span className="flex items-center gap-1 text-slate-300 text-[10px]" title="تأخر في الشبكة — سيُعاد تلقائياً">
+        <RefreshCw className="w-3 h-3" />
+        <span className="hidden md:inline">سيُعاد ↺</span>
       </span>
     );
     // فشل دائم (auth error)
@@ -1253,7 +1255,7 @@ function AppInner() {
             onUpdateUsers={handleUpdateUsers}
             onTriggerSync={handleForceManualSync}
             syncStatus={syncStatus}
-            onClose={() => { setShowSettings(false); handleAdminLogout(); }}
+            onClose={() => { setShowSettings(false); }}
             onAdminLogin={handleAdminLogin}
             onAdminLogout={handleAdminLogout}
           />
