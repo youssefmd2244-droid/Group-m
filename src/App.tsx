@@ -35,7 +35,7 @@ import {
 
 import type {
   AppConfig, ThemeConfig, InstallationRecord, UserRecord,
-} from './components/SettingsDashboard';
+} from './types';
 import SettingsDashboard  from './components/SettingsDashboard';
 import InstallationForm   from './components/InstallationForm';
 import RegistrationForm   from './components/RegistrationForm';
