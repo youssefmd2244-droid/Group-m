@@ -12,7 +12,7 @@ import { UserRecord, ContactNumber, ThemeConfig, AppConfig, FormFieldSchema, Cus
 import { exportProfileAsPNG, printUserProfile, exportProfileAsHTML2Canvas } from '../utils/exportProfile';
 import { exportToExcel, exportToWord, exportToCSV, exportToImage, exportInstallationsToExcel, exportInstallationsToWord, exportInstallationsToPDF } from '../utils/advancedExports';
 import type { InstallationExportRecord } from '../utils/advancedExports';
-import { DownloadZipButton } from '../utils/clientZipExport';
+import { DownloadZipButton } from '../utils/clientZipComponents';
 
 // Re-exported for backward compatibility — defined in ../types
 export type { InstallationFieldSchema, InstallationRecord } from '../types';
@@ -1375,7 +1375,7 @@ export default function SettingsDashboard({
                                             </button>
                                             <button
                                               onClick={() => {
-                                                import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
+                                                import('../utils/clientZipComponents').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
                                                 setActiveExportDropdown(null);
                                               }}
                                               className="w-full px-3.5 py-1.5 text-[10px] text-violet-700 hover:bg-violet-50 transition flex items-center justify-between font-bold"
