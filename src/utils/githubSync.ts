@@ -1,32 +1,27 @@
 /**
- * githubSync.ts — Hardened GitHub Sync Engine v5.0
+ * githubSync.ts — Hardened GitHub Sync Engine v6.0
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * الإصلاحات الجذرية في هذه النسخة (v5.0):
+ * الإصلاحات الجذرية في هذه النسخة (v6.0):
  *
- * ① Token Protection الكامل — لا يُحذف Token أبداً مهما حدث
- *    - أي خطأ (401, 404, 422, 409, Timeout, Network) لا يمس الـ Token
- *    - Token يُحفظ في localStorage بـ 3 مفاتيح مستقلة
- *    - resolveToken() تبحث في 4 مصادر (env → state → ls-primary → ls-fallback)
- *    - HARDCODED Fallback Credentials مباشرة في الكود كطبقة أخيرة
+ * ① Isolate Network Failures — Token Protection الكامل
+ *    - أي خطأ (401, 404, 422, 409, Timeout, CORS, Network) لا يمس Token أبداً
+ *    - Token يُحفظ في localStorage بـ 3 مفاتيح مستقلة (redundancy)
+ *    - resolveToken() تبحث في 5 مصادر (env → state → ls-primary → ls-bk1 → ls-bk2)
+ *    - عند فشل الطلب: نُبقي على Token وبيانات المستودع كما هي في الـ State والـ LocalStorage
+ *    - تمييز FailureKind: 'transient' (شبكة) vs 'auth' (Token خاطئ) vs 'none'
+ *    - أيقونة "فشل مؤقت" (WifiOff) مع Retry تلقائي 3 مرات عند استقرار الشبكة
  *
- * ② Hardcoded Fallback Credentials — يعمل حتى لو مُسح localStorage كلياً
- *    - المعلومات الأساسية محفورة في الكود مباشرة
- *    - النظام لا يتوقف مهما حدث من Re-render أو مسح Cache
+ * ② Performance Optimization — Zero UI Freeze
+ *    - safeStringify() غير متزامنة داخل setTimeout(0) لتحرير event loop
+ *    - runWhenIdle() عبر requestIdleCallback للعمليات الثقيلة غير العاجلة
+ *    - Smart Queue: Sequential Upload (FIFO حقيقي) مع Debounce ذكي
+ *    - الفورم يُفرَّغ فوراً — المزامنة تتم في الخلفية بالكامل
  *
- * ③ Exponential Backoff Retry (3 مرات) — دون إظهار error للمستخدم
- *    - 1.5s → 3s → 6s بين المحاولات
- *    - 409 Conflict يُعاد تلقائياً بـ SHA جديد
- *    - Timeout 60 ثانية كافية للـ Base64 الكبير
- *
- * ④ Safe JSON Serialization — منع تهنيج المتصفح
- *    - safeStringify() داخل setTimeout(0) لتحرير event loop
- *    - requestIdleCallback كـ fallback للعمليات الثقيلة
- *
- * ⑤ Smart Sync Queue — FIFO حقيقي مع Debounce
- *    - كل push ينتظر OK من السابق
- *    - آخر job يفوز عند الضغط المتتالي (debounce)
- *    - onStatusChange callback لتحديث الـ UI تلقائياً
+ * ③ Strict Auth Lock — sessionStorage فقط
+ *    - التحقق الصارم من "20042007" بالمقارنة المباشرة
+ *    - sessionStorage يُصفَّر تلقائياً بإغلاق التبويب
+ *    - لا تفتح الإعدادات نهائياً إلا بالباسورد الصحيح
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
@@ -43,19 +38,25 @@ export interface GhFetchResult {
   sha?: string;
 }
 
-export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
+export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'transient_fail';
+
+/**
+ * ① نوع الفشل — يُحدد طريقة الاستجابة في الـ UI:
+ * - 'transient': فشل مؤقت (شبكة/timeout/CORS) — أيقونة WifiOff، Retry تلقائي
+ * - 'auth'     : فشل دائم (Token خاطئ/منتهي) — أيقونة Error، يُطلب تحديث Token
+ * - 'none'     : لا يوجد Token أصلاً — لا رسالة خطأ
+ */
+export type FailureKind = 'transient' | 'auth' | 'none';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ① HARDCODED FALLBACK CREDENTIALS
-//    محفورة مباشرة في الكود — تعمل حتى لو مُسح localStorage كلياً
-//    أو حدث Re-render مفاجئ أو انقطعت الـ session
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const HARDCODED_OWNER     = 'youssefmd2244-droid';
 export const HARDCODED_REPO      = 'Group-m';
 export const HARDCODED_BRANCH    = 'main';
 export const HARDCODED_DATA_PATH = 'src/data.json';
-export const HARDCODED_TOKEN     = ''; // ضع هنا الـ Token إن أردت hardcoded fallback كامل
+export const HARDCODED_TOKEN     = ''; // ضع هنا الـ Token إن أردت hardcoded fallback
 
 const GITHUB_API       = 'https://api.github.com';
 const FETCH_TIMEOUT_MS = 60_000; // 60 ثانية — كافية للـ Base64 الكبير
@@ -63,14 +64,14 @@ const MAX_RETRY        = 3;
 const RETRY_BASE_MS    = 1_500;  // 1.5s → 3s → 6s
 
 // ─────────────────────────────────────────────────────────────────────────────
-// مفاتيح localStorage — ثلاثة مستقلة لضمان عدم الضياع
+// ① مفاتيح localStorage — 3 مفاتيح مستقلة للـ Token (Redundancy)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LS = {
-  // GitHub Credentials — 3 مفاتيح مستقلة كـ redundancy
+  // GitHub Credentials — 3 مفاتيح مستقلة (حتى لو فشل واحد يبقى الآخران)
   ghToken    : 'gh_token_primary',
-  ghTokenBk1 : 'gh_token_backup_1',   // نسخة احتياطية أولى
-  ghTokenBk2 : 'gh_token_backup_2',   // نسخة احتياطية ثانية
+  ghTokenBk1 : 'gh_token_backup_1',
+  ghTokenBk2 : 'gh_token_backup_2',
   ghOwner    : 'gh_owner',
   ghRepo     : 'gh_repo',
   ghBranch   : 'gh_branch',
@@ -80,22 +81,21 @@ export const LS = {
   config        : 'group_m_config',
   users         : 'group_m_users',
   installations : 'group_m_installations',
-  adminSession  : 'group_m_admin_session', // sessionStorage فقط
+  adminSession  : 'group_m_admin_session',
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🔒 Token Persistence — حفظ دائم في 3 مفاتيح مستقلة
+// ① Token Persistence — حفظ دائم في 3 مفاتيح مستقلة
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * يحفظ credentials في localStorage بـ 3 مفاتيح مستقلة.
- * استراتيجية redundancy: حتى لو فشل حفظ مفتاح واحد، الآخران يبقيان.
+ * ① يحفظ credentials في localStorage بـ 3 مفاتيح مستقلة.
  * لا يُحذف أي key موجود — فقط يُضيف/يُحدِّث.
+ * حتى لو فشل حفظ مفتاح واحد (full storage)، الآخران يبقيان.
  */
 export function persistGhCredentials(cfg?: AppConfig['github']): void {
   if (!cfg) return;
   try {
-    // حفظ التوكن في 3 مفاتيح مختلفة
     if (cfg.token && cfg.token.trim()) {
       const t = cfg.token.trim();
       try { localStorage.setItem(LS.ghToken,    t); } catch (_) {}
@@ -106,21 +106,19 @@ export function persistGhCredentials(cfg?: AppConfig['github']): void {
     if (cfg.repo)     try { localStorage.setItem(LS.ghRepo,     cfg.repo);     } catch (_) {}
     if (cfg.branch)   try { localStorage.setItem(LS.ghBranch,   cfg.branch);   } catch (_) {}
     if (cfg.dataPath) try { localStorage.setItem(LS.ghDataPath, cfg.dataPath); } catch (_) {}
-  } catch (_) {
-    // localStorage ممتلئ كلياً — نتجاهل بدون crash
-  }
+  } catch (_) {}
 }
 
 /**
- * يقرأ الـ Token من 5 مصادر بالترتيب (من الأعلى أولوية للأدنى):
- * 1. VITE env variable (أعلى أولوية — للـ production deployment)
+ * ① يقرأ الـ Token من 5 مصادر بالترتيب (أعلى أولوية → أدنى):
+ * 1. VITE env variable
  * 2. cfg.token (React State — المصدر الحيّ)
  * 3. localStorage primary key
  * 4. localStorage backup key #1
  * 5. localStorage backup key #2
- * 6. HARDCODED_TOKEN (آخر ملاذ — Fallback Credential محفور في الكود)
+ * 6. HARDCODED_TOKEN (آخر ملاذ)
  *
- * ⚠️ لا يُصفِّر Token أبداً — يُعيد '' فقط إذا لم يجد شيئاً
+ * ⚠️ لا يُصفِّر Token أبداً — يُعيد '' فقط إذا فشلت كل المصادر
  */
 export function resolveToken(cfg?: AppConfig['github']): string {
   return (
@@ -137,7 +135,6 @@ export function resolveToken(cfg?: AppConfig['github']): string {
 /**
  * يبني GitHub config كاملاً من كل المصادر المتاحة.
  * كل قيمة لها fallback ثلاثي: State → localStorage → HARDCODED
- * النتيجة لا تكون فارغة أبداً.
  */
 export function buildGhConfig(cfg?: AppConfig['github']): AppConfig['github'] {
   return {
@@ -152,24 +149,24 @@ export function buildGhConfig(cfg?: AppConfig['github']): AppConfig['github'] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🔐 Admin Session — sessionStorage فقط (يُصفَّر بإغلاق التبويب)
+// ③ Admin Session — sessionStorage فقط (يُصفَّر بإغلاق التبويب)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ADMIN_SESSION_KEY   = LS.adminSession;
-const ADMIN_PASSWORD_HASH = '20042007'; // الباسورد الصارم والمحدد
+const ADMIN_PASSWORD_HASH = '20042007'; // الباسورد الصارم
 
 /**
- * التحقق من الباسورد بشكل صارم.
- * لا يُسمح بأي مدخل لا يطابق تماماً.
+ * ③ التحقق الصارم من الباسورد — مقارنة مباشرة فقط.
+ * لا يُسمح بأي مدخل لا يطابق تماماً (trim() للأمان من المسافات).
  */
 export function verifyAdminPassword(input: string): boolean {
-  return typeof input === 'string' && input === ADMIN_PASSWORD_HASH;
+  return typeof input === 'string' && input.trim() === ADMIN_PASSWORD_HASH;
 }
 
 /**
- * قراءة حالة جلسة الأدمن من sessionStorage.
+ * ③ قراءة حالة جلسة الأدمن من sessionStorage.
  * sessionStorage يُصفَّر تلقائياً بإغلاق التبويب أو المتصفح.
- * لا يُؤثر Re-render أو تهنيج الـ UI على هذه القيمة بين الـ renders.
+ * Re-render لا يُؤثر على هذه القيمة — مصدرها خارج React State.
  */
 export function isAdminSessionActive(): boolean {
   try {
@@ -180,17 +177,14 @@ export function isAdminSessionActive(): boolean {
 }
 
 /**
- * تفعيل/إيقاف جلسة الأدمن في sessionStorage.
+ * ③ تفعيل/إيقاف جلسة الأدمن في sessionStorage.
  * val=true: تفعيل (بعد إدخال الباسورد الصحيح)
  * val=false: إيقاف فوري (logout أو إغلاق الإعدادات)
  */
 export function setAdminSession(val: boolean): void {
   try {
-    if (val) {
-      sessionStorage.setItem(ADMIN_SESSION_KEY, 'active');
-    } else {
-      sessionStorage.removeItem(ADMIN_SESSION_KEY);
-    }
+    if (val) sessionStorage.setItem(ADMIN_SESSION_KEY, 'active');
+    else     sessionStorage.removeItem(ADMIN_SESSION_KEY);
   } catch (_) {}
 }
 
@@ -200,7 +194,7 @@ export function setAdminSession(val: boolean): void {
 
 /**
  * fetch مع AbortController للـ timeout.
- * Timeout لا يُعتبر خطأ في الـ Token — فقط يُعيد المحاولة.
+ * ① Timeout لا يُعتبر خطأ في الـ Token — يُصنَّف 'transient' فقط.
  */
 async function fetchWithTimeout(
   url: string,
@@ -257,18 +251,16 @@ function fromB64(b64: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ③ Safe JSON Serialize — منع تهنيج المتصفح مع Base64 الكبير
+// ② Safe JSON Serialize — يمنع تجميد المتصفح مع Base64 الكبير
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * JSON.stringify آمن وغير مُعطِّل للـ UI:
+ * ② JSON.stringify آمن وغير مُعطِّل للـ UI:
  * - يُنفَّذ داخل setTimeout(0) لتحرير event loop قبل العملية الثقيلة
  * - يمنع تجميد المتصفح عند معالجة Base64 ضخم (صور/فيديوهات)
- * - try/catch لمنع أي crash
  */
 export async function safeStringify(data: unknown): Promise<string> {
   return new Promise((resolve, reject) => {
-    // setTimeout(0) = تسليم التحكم للـ browser event loop أولاً
     setTimeout(() => {
       try {
         resolve(JSON.stringify(data, null, 2));
@@ -280,8 +272,7 @@ export async function safeStringify(data: unknown): Promise<string> {
 }
 
 /**
- * معالجة البيانات الثقيلة عبر requestIdleCallback إن كان متاحاً.
- * يُستخدم للعمليات التي لا تحتاج استجابة فورية (مثل pre-processing للـ Base64).
+ * ② معالجة البيانات الثقيلة عبر requestIdleCallback إن كان متاحاً.
  * Fallback: setTimeout(200) عند غياب requestIdleCallback.
  */
 export function runWhenIdle(fn: () => void): void {
@@ -297,9 +288,9 @@ export function runWhenIdle(fn: () => void): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * جلب البيانات من GitHub مع:
+ * ① جلب البيانات من GitHub مع:
  * - Timeout 60 ثانية
- * - أي خطأ HTTP لا يمس الـ Token — يُعيد null فقط
+ * - أي خطأ HTTP أو Network لا يمس Token أبداً — يُعيد null فقط
  * - SHA caching لتسريع الـ PUT التالي
  */
 export async function ghFetch(cfg: AppConfig['github']): Promise<GhFetchResult | null> {
@@ -317,16 +308,15 @@ export async function ghFetch(cfg: AppConfig['github']): Promise<GhFetchResult |
       headers: buildHeaders(token),
     });
 
-    // أي خطأ HTTP — لا يمس الـ Token، نُعيد null فقط
+    // ① أي خطأ HTTP — لا يمس Token، نُعيد null فقط
     if (!res.ok) {
-      console.warn(`[ghFetch] HTTP ${res.status} — Token محفوظ، نُعيد null`);
+      console.warn(`[ghFetch] HTTP ${res.status} — Token محفوظ في 3 مفاتيح، نُعيد null`);
       return null;
     }
 
     const json = await res.json();
     const sha  = json.sha as string | undefined;
 
-    // حفظ SHA للاستخدام في الـ PUT التالي
     if (sha) {
       try { localStorage.setItem(LS.ghSha, sha); } catch (_) {}
     }
@@ -335,39 +325,42 @@ export async function ghFetch(cfg: AppConfig['github']): Promise<GhFetchResult |
     let raw: any = {};
     try { raw = JSON.parse(decoded); } catch (_) { raw = {}; }
 
-    const users         = safeArr<UserRecord>(Array.isArray(raw) ? raw : raw?.users);
-    const installations = safeArr<InstallationRecord>(raw?.installations);
-    const config        = raw?.__config__ || undefined;
-
-    return { users, installations, config, sha };
+    return {
+      users        : safeArr<UserRecord>(Array.isArray(raw) ? raw : raw?.users),
+      installations: safeArr<InstallationRecord>(raw?.installations),
+      config       : raw?.__config__ || undefined,
+      sha,
+    };
   } catch (err) {
-    // Network error / Timeout — لا نمس الـ Token أبداً
+    // ① Network/CORS/Timeout — Token لا يُمس أبداً
     console.warn('[ghFetch] network error (Token محفوظ):', err);
     return null;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ③ ghPush — رفع البيانات مع Exponential Backoff Retry (3 مرات)
+// ① ② ghPush — رفع البيانات مع Retry + Token Protection + FailureKind
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * يرفع البيانات إلى GitHub مع:
+ * ① يرفع البيانات إلى GitHub مع:
  * - SHA-aware PUT لمنع 409 Conflict
  * - Retry تلقائي (3 مرات) مع Exponential Backoff: 1.5s → 3s → 6s
  * - Timeout 60 ثانية على كل request
  * - Token محمي تماماً — لا يُحذف أبداً عند أي خطأ
- * - لا تظهر رسائل خطأ للمستخدم أثناء الـ retry
+ * - يُعيد { success, failureKind } للتمييز بين فشل مؤقت ودائم
+ *
+ * ② safeStringify() تمنع تجميد UI أثناء بناء الـ payload
  */
 export async function ghPush(
   users        : UserRecord[],
   installations: InstallationRecord[],
   cfg          : AppConfig['github'],
-): Promise<boolean> {
+): Promise<{ success: boolean; failureKind: FailureKind }> {
   const token = resolveToken(cfg);
   if (!token) {
     console.warn('[ghPush] لا يوجد Token — تخطي');
-    return false;
+    return { success: false, failureKind: 'none' };
   }
 
   const { owner, repo, branch, dataPath } = buildGhConfig(cfg);
@@ -375,7 +368,7 @@ export async function ghPush(
 
   for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     try {
-      // ─── Step 1: جلب SHA الحالي (لمنع 409 Conflict) ─────────────────────
+      // ─── Step 1: جلب SHA الحالي (لمنع 409 Conflict) ──────────────────────
       let currentSha: string | undefined = localStorage.getItem(LS.ghSha) || undefined;
       let existingConfig: Record<string, unknown> = {};
 
@@ -388,12 +381,10 @@ export async function ghPush(
           const getData = await getRes.json();
           currentSha = getData.sha || currentSha;
 
-          // حفظ SHA الجديد فوراً في localStorage
           if (currentSha) {
             try { localStorage.setItem(LS.ghSha, currentSha); } catch (_) {}
           }
 
-          // الحفاظ على __config__ الموجود في الملف (لا نُفقده)
           if (getData.content) {
             try {
               const dec    = fromB64(getData.content);
@@ -402,21 +393,21 @@ export async function ghPush(
             } catch (_) {}
           }
         } else if (getRes.status === 401) {
-          // 401 = Token منتهي أو غير صالح
-          // ⚠️ لا نُحذف Token — نُوقف الـ retry فقط لأن retry لن يفيد
-          console.warn('[ghPush] 401 Unauthorized — Token موجود لكن غير صالح حالياً');
-          return false;
+          // ① 401 = Token غير صالح — لا retry، Token يبقى محفوظاً
+          console.warn('[ghPush] GET 401 — Token موجود لكن غير صالح حالياً');
+          return { success: false, failureKind: 'auth' };
         }
-        // 404 = الملف لم يُنشأ بعد — نكمل بدون SHA (GitHub سيُنشئه)
+        // 404 = الملف لم يُنشأ بعد — نكمل بدون SHA
       } catch (getErr) {
-        // Network error في الـ GET — نكمل بـ SHA القديم من localStorage
-        console.warn('[ghPush] GET SHA failed — نكمل بـ SHA القديم:', getErr);
+        // ① Network error في GET — نكمل بـ SHA القديم، Token محفوظ
+        console.warn('[ghPush] GET SHA network error — نكمل بـ SHA القديم:', getErr);
       }
 
-      // ─── Step 2: بناء الـ payload بأمان (safeStringify يمنع تجميد الـ UI) ──
+      // ─── Step 2: ② بناء payload بأمان (يمنع تجميد UI) ───────────────────
       const safeUsers = safeArr<UserRecord>(users);
       const safeInst  = safeArr<InstallationRecord>(installations);
 
+      // ② safeStringify داخل setTimeout(0) لتحرير event loop
       const payloadStr = await safeStringify({
         users        : safeUsers,
         installations: safeInst,
@@ -446,30 +437,26 @@ export async function ghPush(
         // ✅ نجاح — نُؤكد حفظ credentials مجدداً
         persistGhCredentials(cfg);
         console.info(`[ghPush] ✅ نجح (attempt ${attempt}/${MAX_RETRY})`);
-        return true;
+        return { success: true, failureKind: 'none' };
       }
 
-      // ─── معالجة أخطاء HTTP المختلفة ──────────────────────────────────────
+      // ─── معالجة أخطاء HTTP ──────────────────────────────────────────────
       const errText = await putRes.text().catch(() => '');
 
       if (putRes.status === 401) {
-        // Token غير صالح — لا فائدة من الـ retry
-        // ⚠️ Token يبقى في localStorage — لا نمسه
-        console.warn('[ghPush] 401 — Token محفوظ، يرجى تحديثه من الإعدادات');
-        return false;
+        // ① Token غير صالح — لا retry، Token يبقى محفوظاً في localStorage
+        console.warn('[ghPush] PUT 401 — Token محفوظ، يرجى تحديثه من الإعدادات');
+        return { success: false, failureKind: 'auth' };
       }
 
       if (putRes.status === 409) {
-        // SHA Conflict — نُعيد المحاولة بـ SHA جديد (يُجلب في attempt التالي)
+        // SHA Conflict — نُعيد بـ SHA جديد في attempt التالي
         console.warn(`[ghPush] 409 Conflict (attempt ${attempt}) — إعادة بـ SHA جديد`);
         try { localStorage.removeItem(LS.ghSha); } catch (_) {}
-        // لا نُرجع false — نكمل للـ retry التالي
       } else if (putRes.status === 422) {
-        // Validation error — قد يكون SHA قديم
         console.warn(`[ghPush] 422 Unprocessable (attempt ${attempt}):`, errText.slice(0, 200));
         try { localStorage.removeItem(LS.ghSha); } catch (_) {}
       } else if (putRes.status === 404) {
-        // Repository/path غير موجود — نُعيد بدون SHA
         console.warn(`[ghPush] 404 — الملف/Repository غير موجود (attempt ${attempt})`);
         try { localStorage.removeItem(LS.ghSha); } catch (_) {}
       } else {
@@ -477,11 +464,11 @@ export async function ghPush(
       }
 
     } catch (err: any) {
-      // Network error / Timeout — Token لا يُمس أبداً
-      console.warn(`[ghPush] Error (attempt ${attempt}/${MAX_RETRY}) — Token محفوظ:`, err?.message || err);
+      // ① Network/CORS/Timeout — Token لا يُمس أبداً، فشل مؤقت
+      console.warn(`[ghPush] Network error (attempt ${attempt}/${MAX_RETRY}) — Token محفوظ:`, err?.message || err);
     }
 
-    // ─── Exponential Backoff — لا رسائل خطأ للمستخدم أثناء الـ retry ────────
+    // ─── ② Exponential Backoff — بدون رسائل خطأ للمستخدم أثناء الـ retry ──
     if (attempt < MAX_RETRY) {
       const waitMs = RETRY_BASE_MS * Math.pow(2, attempt - 1); // 1.5s, 3s, 6s
       console.info(`[ghPush] إعادة المحاولة بعد ${waitMs}ms...`);
@@ -489,27 +476,28 @@ export async function ghPush(
     }
   }
 
-  // فشلت جميع المحاولات — Token لا يزال محفوظاً وسليماً
-  console.warn(`[ghPush] ❌ فشل بعد ${MAX_RETRY} محاولات — Token محفوظ، سيُعاد لاحقاً`);
-  return false;
+  // ① فشلت جميع المحاولات — Token لا يزال محفوظاً وسليماً في 3 مفاتيح
+  console.warn(`[ghPush] ❌ فشل مؤقت بعد ${MAX_RETRY} محاولات — Token محفوظ، سيُعاد عند استقرار الشبكة`);
+  return { success: false, failureKind: 'transient' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ② Smart Sync Queue — FIFO حقيقي مع Debounce
+// ② Smart Sync Queue v6.0 — FIFO + Debounce + FailureKind awareness
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * طابور ذكي للرفع يضمن:
- * - FIFO حقيقي: كل push ينتظر OK من السابق
+ * ② طابور ذكي للرفع يضمن:
+ * - FIFO حقيقي: كل push ينتظر OK من السابق (Sequential Upload)
  * - Debounce: آخر job يفوز عند الضغط المتتالي السريع
- * - Token محمي: أي خطأ لا يوقف الـ queue ولا يمس الـ Token
- * - onStatusChange callback لتحديث الـ UI تلقائياً بدون prop drilling
+ * - ① Token محمي: أي خطأ لا يوقف queue ولا يمس Token
+ * - ① تمييز FailureKind: يُبلِّغ الـ UI بنوع الفشل الصحيح
+ * - onStatusChange callback لتحديث UI تلقائياً بدون prop drilling
  */
 export function createSyncQueue(
   onStatusChange?: (status: SyncStatus) => void,
 ) {
   let running = false;
-  let pending: (() => Promise<void>) | null = null;
+  let pending: (() => Promise<{ success: boolean; failureKind: FailureKind }>) | null = null;
 
   function notify(status: SyncStatus) {
     try { onStatusChange?.(status); } catch (_) {}
@@ -525,16 +513,27 @@ export function createSyncQueue(
     notify('syncing');
 
     try {
-      await job();
-      // نُحدِّث status فقط إذا لا يوجد pending آخر
-      if (!pending) notify('success');
+      const result = await job();
+      if (!pending) {
+        if (result.success) {
+          notify('success');
+        } else if (result.failureKind === 'auth') {
+          // ① فشل دائم — يُظهر error (Token يحتاج تحديث)
+          notify('error');
+        } else if (result.failureKind === 'transient') {
+          // ① فشل مؤقت — يُظهر transient_fail (شبكة/timeout، Token محفوظ)
+          notify('transient_fail');
+        } else {
+          // 'none' = لا Token — لا status change
+          notify('idle');
+        }
+      }
     } catch (err) {
-      // خطأ في الـ job — Token محمي، نُبلغ UI فقط
-      console.warn('[SyncQueue] job error (Token محفوظ):', err);
-      if (!pending) notify('error');
+      // ① خطأ غير متوقع — Token محمي، نُبلِّغ UI بفشل مؤقت
+      console.warn('[SyncQueue] unexpected error (Token محفوظ):', err);
+      if (!pending) notify('transient_fail');
     } finally {
       running = false;
-      // إذا تراكم pending أثناء التشغيل — نُشغّله فوراً
       if (pending) {
         // microtask delay لتفادي stack overflow
         await new Promise(r => setTimeout(r, 50));
@@ -545,11 +544,11 @@ export function createSyncQueue(
 
   return {
     /**
-     * إضافة job للطابور.
+     * ② إضافة job للطابور.
      * إذا كان هناك push نشط، يُخزَّن هذا الـ job ويُنفَّذ بعده.
-     * إذا كان هناك pending آخر، يُستبدَل بهذا (آخر بيانات تكسب دائماً).
+     * آخر job يفوز (debounce) — لكن لا يُفقد البيانات لأننا نمرر آخر snapshot.
      */
-    enqueue(job: () => Promise<void>): void {
+    enqueue(job: () => Promise<{ success: boolean; failureKind: FailureKind }>): void {
       pending = job;
       runNext();
     },
@@ -564,26 +563,24 @@ export function createSyncQueue(
 
 /**
  * دمج installations:
- * - GitHub هو المصدر الأساسي (source of truth — الأحدث)
+ * - GitHub هو المصدر الأساسي (source of truth)
  * - السجلات الموجودة locally فقط (pending sync) تُضاف في النهاية
  */
 export function mergeInstallations(
   fromGithub: InstallationRecord[],
   fromLocal : InstallationRecord[],
 ): InstallationRecord[] {
-  const ghIds    = new Set(safeArr(fromGithub).map(r => r.id));
+  const ghIds     = new Set(safeArr(fromGithub).map(r => r.id));
   const localOnly = safeArr(fromLocal).filter(r => !ghIds.has(r.id));
   return [...safeArr(fromGithub), ...localOnly];
 }
 
-/**
- * دمج users — نفس استراتيجية الـ installations.
- */
+/** دمج users — نفس استراتيجية الـ installations */
 export function mergeUsers(
   fromGithub: UserRecord[],
   fromLocal : UserRecord[],
 ): UserRecord[] {
-  const ghIds    = new Set(safeArr(fromGithub).map(r => r.id));
+  const ghIds     = new Set(safeArr(fromGithub).map(r => r.id));
   const localOnly = safeArr(fromLocal).filter(r => !ghIds.has(r.id));
   return [...safeArr(fromGithub), ...localOnly];
 }
