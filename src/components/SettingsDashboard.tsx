@@ -6,12 +6,13 @@ import {
   Sliders, Languages, PlusCircle, CheckSquare, Square, Send, Link, ToggleLeft, ToggleRight,
   Monitor, Image, Zap,
   Wrench, Calculator, DollarSign, UserCheck, Download, BarChart2,
-  Camera, Video, FileText, Trash, ChevronDown, ChevronUp, Package
+  Camera, Video, FileText, Trash, ChevronDown, ChevronUp, Package, Archive
 } from 'lucide-react';
 import { UserRecord, ContactNumber, ThemeConfig, AppConfig, GitHubConfig, FormFieldSchema, CustomFloatingButton } from '../types';
 import { exportProfileAsPNG, printUserProfile, exportProfileAsHTML2Canvas } from '../utils/exportProfile';
 import { exportToExcel, exportToWord, exportToCSV, exportToImage, exportInstallationsToExcel, exportInstallationsToWord, exportInstallationsToPDF } from '../utils/advancedExports';
 import type { InstallationExportRecord } from '../utils/advancedExports';
+import { DownloadZipButton, downloadClientZip, DownloadUserZipButton } from '../utils/clientZipExport';
 
 
 // ── New Types for Installations ────────────────────────────────────────────
@@ -1403,6 +1404,16 @@ export default function SettingsDashboard({
                                               <span>بطاقة نيون كلاسيك (Canvas)</span>
                                               <Palette size={11} />
                                             </button>
+                                            <button
+                                              onClick={() => {
+                                                downloadUserZip !== undefined && import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
+                                                setActiveExportDropdown(null);
+                                              }}
+                                              className="w-full px-3.5 py-1.5 text-[10px] text-violet-700 hover:bg-violet-50 transition flex items-center justify-between font-bold"
+                                            >
+                                              <span>تحميل ملف ZIP شامل (صور + تقارير)</span>
+                                              <Archive size={11} />
+                                            </button>
                                           </div>
                                         </>
                                       )}
@@ -1743,7 +1754,13 @@ export default function SettingsDashboard({
                             {inst.notes && <div className="text-[10px] text-slate-400 mt-0.5 italic">{inst.notes}</div>}
                             <div className="text-[9px] text-slate-300 mt-0.5">{new Date(inst.createdAt).toLocaleDateString('ar-EG')}</div>
                           </div>
-                          <div className="flex gap-1 shrink-0">
+                          <div className="flex gap-1 shrink-0 flex-wrap justify-end">
+                            <DownloadZipButton
+                              record={inst}
+                              systemTitle={appConfig.websiteTitle}
+                              logoBase64={appConfig.logoBase64}
+                              size="sm"
+                            />
                             <button onClick={() => setEditingInstall({...inst})} className="p-1.5 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-100 cursor-pointer"><Edit2 size={12} /></button>
                             <button onClick={() => handleDeleteInstall(inst.id)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500 hover:bg-rose-100 cursor-pointer"><Trash2 size={12} /></button>
                           </div>
@@ -1856,13 +1873,21 @@ export default function SettingsDashboard({
                         {selectedWorker === worker.name && (
                           <div className="border-t border-slate-100 bg-slate-50 p-3 space-y-1.5">
                             {worker.records.map(r => (
-                              <div key={r.id} className="flex items-center justify-between bg-white rounded-xl p-2.5 text-xs border border-slate-100">
+                              <div key={r.id} className="flex items-center justify-between bg-white rounded-xl p-2.5 text-xs border border-slate-100 gap-2 flex-wrap">
                                 <div>
                                   <span className="font-bold text-slate-700">{r.clientName}</span>
                                   <span className="text-slate-400 mr-2">{r.area} · {r.installationsCount} تركيبة</span>
                                   {r.isPaid && <span className="text-emerald-500 mr-1 text-[9px]">✓ مدفوع</span>}
                                 </div>
-                                <span className="text-slate-300 text-[9px]">{new Date(r.createdAt).toLocaleDateString('ar-EG')}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-slate-300 text-[9px]">{new Date(r.createdAt).toLocaleDateString('ar-EG')}</span>
+                                  <DownloadZipButton
+                                    record={r}
+                                    systemTitle={appConfig.websiteTitle}
+                                    logoBase64={appConfig.logoBase64}
+                                    size="sm"
+                                  />
+                                </div>
                               </div>
                             ))}
                           </div>
