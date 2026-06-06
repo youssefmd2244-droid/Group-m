@@ -75,6 +75,38 @@ export interface CustomFloatingButton {
   isFloating: boolean;
 }
 
+export interface InstallationFieldSchema {
+  id: string;
+  name: string;
+  labelAr: string;
+  type: 'text' | 'number' | 'select' | 'tel';
+  required: boolean;
+  optionsAr?: string;
+  isEnabled: boolean;
+}
+
+export interface InstallationRecord {
+  id: string;
+  workerName: string;
+  clientName: string;
+  clientMobile: string;
+  clientLandline: string;
+  area: string;
+  buildingName: string;
+  buildingNumber: string;
+  installationsCount: number;
+  clientIdPhoto?: string;
+  thermalPhoto?: string;
+  boxPhoto?: string;
+  mainBoxPhoto?: string;
+  installationVideo?: string;
+  notes?: string;
+  customFields?: { [key: string]: string };
+  createdAt: string;
+  isPaid?: boolean;
+  paidAt?: string;
+}
+
 export interface AppConfig {
   websiteTitle: string;
   welcomeSubtitleAr?: string;
@@ -91,7 +123,7 @@ export interface AppConfig {
   localizationOverrides?: { [key: string]: string }; // CMS Text replacement mapping
   logoBase64?: string;
   enableTitleAnimation?: boolean;
-  installationFieldsSchema?: import('./components/SettingsDashboard').InstallationFieldSchema[];
-  installations?: import('./components/SettingsDashboard').InstallationRecord[];
+  installationFieldsSchema?: InstallationFieldSchema[];
+  installations?: InstallationRecord[];
   installationPricePerUnit?: number;
 }
