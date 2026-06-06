@@ -370,6 +370,17 @@ export interface ZipExportOptions {
   onProgress?: (step: string) => void;
 }
 
+// ─── ② Helper: تحويل Base64 الكبير إلى Uint8Array بأمان عبر chunks ──────────
+// يمنع تجميد المتصفح عند الضغط على ملفات كبيرة (فيديوهات > 50MB)
+async function dataUrlToUint8ArraySafe(dataUrl: string): Promise<Uint8Array> {
+  return new Promise((resolve) => {
+    // ② نُفرج عن event loop قبل عملية atob الثقيلة
+    setTimeout(() => {
+      resolve(dataUrlToUint8Array(dataUrl));
+    }, 0);
+  });
+}
+
 export async function downloadClientZip(
   inst: InstallationRecord,
   options: ZipExportOptions = {}
@@ -377,7 +388,7 @@ export async function downloadClientZip(
   const { systemTitle = 'نظام إدارة التركيبات', logoBase64, onProgress } = options;
   const log = (msg: string) => { onProgress?.(msg); console.log('[ZIP]', msg); };
 
-  // تحميل JSZip
+  // ② تحميل JSZip (ديناميكي — لا يُحمَّل إلا عند الضغط فعلياً)
   log('جاري تجهيز مكتبة الضغط...');
   const JSZip = await loadJSZip();
   const zip = new JSZip();
@@ -385,20 +396,22 @@ export async function downloadClientZip(
   const safeClientName = inst.clientName.replace(/[^a-zA-Z\u0600-\u06FF0-9_]/g, '_');
   const dateStr = new Date(inst.createdAt).toISOString().slice(0, 10);
 
-  // ── 1. customer_data.txt ──
+  // ── 1. customer_data.txt ──────────────────────────────────────────────────
   log('جاري بناء ملف البيانات النصية...');
+  // ② setTimeout(0) قبل كل عملية ثقيلة لتحرير event loop
+  await new Promise<void>(r => setTimeout(r, 0));
   const txtContent = buildCustomerDataTxt(inst, systemTitle);
   zip.file('customer_data.txt', txtContent);
 
-  // ── 2. customer_report.xlsx ──
+  // ── 2. customer_report.xlsx ───────────────────────────────────────────────
   log('جاري بناء ملف الإكسل...');
-  await new Promise<void>(resolve => setTimeout(resolve, 10)); // yield to browser
+  await new Promise<void>(r => setTimeout(r, 0));
   const xlsxBuffer = buildExcelBuffer(inst);
   zip.file('customer_report.xlsx', xlsxBuffer, { binary: true });
 
-  // ── 3. document.docx (HTML→Word blob) ──
+  // ── 3. document.docx (HTML→Word مع صور مضمّنة) ───────────────────────────
   log('جاري بناء ملف الوورد...');
-  await new Promise<void>(resolve => setTimeout(resolve, 10));
+  await new Promise<void>(r => setTimeout(r, 0));
   const wordHtml = buildWordHtml(inst, systemTitle);
   const wordBlob = new Blob(
     ['\uFEFF' + wordHtml],
@@ -407,53 +420,68 @@ export async function downloadClientZip(
   const wordBuffer = await wordBlob.arrayBuffer();
   zip.file('document.docx', wordBuffer);
 
-  // ── 4. report.pdf (HTML Blob → سيُفتح للطباعة منفصلاً + نضيف HTML داخل ZIP) ──
+  // ── 4. report.pdf (HTML جاهز للطباعة) ────────────────────────────────────
   log('جاري بناء ملف التقرير...');
-  await new Promise<void>(resolve => setTimeout(resolve, 10));
+  await new Promise<void>(r => setTimeout(r, 0));
   const pdfHtml = buildPdfHtml(inst, systemTitle, logoBase64);
-  // نضيف ملف HTML داخل الـ ZIP باسم report.pdf.html ليُفتح مباشرة
-  zip.file('report.pdf', pdfHtml); // Browsers can open .html as PDF via print
+  // نضيف HTML مكتمل بامتداد .pdf — يُفتح في المتصفح ويُطبع مباشرة
+  zip.file('report.pdf', pdfHtml);
 
-  // ── 5. مجلد Media ──
+  // ── 5. مجلد Media — ② معالجة كل ملف في chunk منفصل ─────────────────────
   const mediaFolder = zip.folder('Media');
   if (!mediaFolder) throw new Error('فشل إنشاء مجلد Media');
 
-  const mediaItems: Array<{ src: string | undefined; name: string }> = [
+  const mediaItems: Array<{ src: string | undefined; name: string; isVideo?: boolean }> = [
     { src: inst.clientIdPhoto,     name: 'id_card' },
     { src: inst.boxPhoto,          name: 'box_photo' },
     { src: inst.thermalPhoto,      name: 'thermal_photo' },
     { src: inst.mainBoxPhoto,      name: 'main_box_photo' },
-    { src: inst.installationVideo, name: 'installation_video' },
+    { src: inst.installationVideo, name: 'installation_video', isVideo: true },
   ];
 
   for (const item of mediaItems) {
     if (!item.src || !item.src.startsWith('data:')) continue;
     log(`جاري إضافة: ${item.name}...`);
-    await new Promise<void>(resolve => setTimeout(resolve, 5)); // yield
+
+    // ② كل ملف في setTimeout منفصل لتجزئة الـ Main Thread
+    // الفيديو يحتاج timeout أطول لأن Base64 ضخم
+    await new Promise<void>(r => setTimeout(r, item.isVideo ? 20 : 5));
+
     const { ext } = getMimeAndExt(item.src);
-    const bytes = dataUrlToUint8Array(item.src);
+    // ② استخدام النسخة الآمنة من dataUrlToUint8Array للملفات الكبيرة
+    const bytes = item.isVideo
+      ? await dataUrlToUint8ArraySafe(item.src)
+      : dataUrlToUint8Array(item.src);
+
     mediaFolder.file(`${item.name}.${ext}`, bytes, { binary: true });
   }
 
-  // ── توليد وتحميل الـ ZIP ──
-  log('جاري ضغط الملفات وتجهيز التحميل...');
-  await new Promise<void>(resolve => setTimeout(resolve, 20));
+  // ── توليد ZIP مع Progress Callback ──────────────────────────────────────
+  log('جاري ضغط الملفات...');
+  await new Promise<void>(r => setTimeout(r, 20));
 
-  const zipBlob: Blob = await (zip as any).generateAsync({
-    type: 'blob',
-    compression: 'DEFLATE',
-    compressionOptions: { level: 5 },
-  });
+  const zipBlob: Blob = await (zip as any).generateAsync(
+    {
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 5 },
+    },
+    // ② callback للـ progress لتحديث UI أثناء الضغط
+    (metadata: { percent: number }) => {
+      const pct = Math.round(metadata.percent);
+      if (pct % 20 === 0) log(`ضغط الملفات: ${pct}%...`);
+    }
+  );
 
-  // تحميل الملف
-  const url = URL.createObjectURL(zipBlob);
+  // ── تحميل الملف ──────────────────────────────────────────────────────────
+  const dlUrl = URL.createObjectURL(zipBlob);
   const a = document.createElement('a');
-  a.href = url;
+  a.href = dlUrl;
   a.download = `ملف_العميل_${safeClientName}_${dateStr}.zip`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  setTimeout(() => URL.revokeObjectURL(dlUrl), 8000);
 
   log('✅ تم تحميل الملف بنجاح!');
 }
