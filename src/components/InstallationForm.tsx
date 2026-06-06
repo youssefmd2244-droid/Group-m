@@ -18,7 +18,7 @@ import type {
   InstallationRecord,
   InstallationFieldSchema,
   ThemeConfig,
-} from './SettingsDashboard';
+} from '../types';
 
 // ─── Compression ──────────────────────────────────────────────────────────────
 
