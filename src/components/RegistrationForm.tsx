@@ -7,7 +7,7 @@ interface RegistrationFormProps {
   fieldsSchema?: FormFieldSchema[];
   localizationOverrides?: { [key: string]: string };
   onSubmit: (record: Omit<UserRecord, 'id' | 'createdAt'>) => void;
-  syncStatus: 'idle' | 'syncing' | 'success' | 'error';
+  syncStatus: 'idle' | 'syncing' | 'success' | 'error' | 'transient_fail';
 }
 
 type PhotoSlot = 'personalPhoto' | 'nationalIdFront' | 'nationalIdBack' | 'birthCertificate';
@@ -406,7 +406,7 @@ export default function RegistrationForm({
               </span>
               {syncStatus === 'syncing' && <p className="text-[10px] text-emerald-600 mt-0.5 font-sans">جاري المزامنة التلقائية مع مستودع GitHub في الخلفية...</p>}
               {syncStatus === 'success' && <p className="text-[10px] text-emerald-600 mt-0.5 font-sans">تمت المزامنة بنجاح مع السيرفر السحابي!</p>}
-              {syncStatus === 'error' && <p className="text-[10px] text-amber-600 mt-0.5 font-sans">تم الحفظ محلياً بنجاح (فشلت مزامنة GitHub المؤقتة، يمكنك تعديلها من الإعدادات).</p>}
+              {(syncStatus === 'error' || syncStatus === 'transient_fail') && <p className="text-[10px] text-amber-600 mt-0.5 font-sans">تم الحفظ محلياً بنجاح (فشلت مزامنة GitHub المؤقتة، يمكنك تعديلها من الإعدادات).</p>}
             </div>
           </div>
         )}
