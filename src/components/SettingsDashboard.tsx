@@ -118,8 +118,8 @@ export default function SettingsDashboard({
   // Authentication Gateway State
   // ✅ نستخدم localStorage عشان الجلسة ما تتمسحش مع ريفريش أو تغيير وضع سطح المكتب
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('group_m_admin_ok') === '1' ||
-           sessionStorage.getItem('group_m_admin_session') === 'active';
+    // فقط sessionStorage — يُصفَّر تلقائياً بإغلاق التبويب
+    return sessionStorage.getItem('group_m_admin_session') === 'active';
   });
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
@@ -291,6 +291,8 @@ export default function SettingsDashboard({
     localStorage.removeItem('group_m_admin_ok');
     sessionStorage.removeItem('group_m_admin_session');
     if (onAdminLogout) onAdminLogout();
+    // إغلاق اللوحة بالكامل بعد الخروج
+    onClose();
   };
 
 
