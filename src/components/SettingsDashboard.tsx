@@ -1375,7 +1375,7 @@ export default function SettingsDashboard({
                                             </button>
                                             <button
                                               onClick={() => {
-                                                import('../utils/clientZipComponents').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
+                                                import('../utils/clientZipExport').then(m => m.downloadUserZip(u, appConfig.websiteTitle, appConfig.logoBase64));
                                                 setActiveExportDropdown(null);
                                               }}
                                               className="w-full px-3.5 py-1.5 text-[10px] text-violet-700 hover:bg-violet-50 transition flex items-center justify-between font-bold"
