@@ -770,7 +770,10 @@ function AppInner() {
 
     const cfg = buildGhConfig(appConfig.github);
     const token = resolveToken(cfg);
-    if (!token) return;
+    if (!token) {
+      setSyncStatus('idle');
+      return;
+    }
 
     persistGhCredentials(cfg);
     setInitPulling(true);
