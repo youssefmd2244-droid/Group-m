@@ -712,8 +712,9 @@ function AppInner() {
   const [showPassGate,  setShowPassGate]  = useState(false);
 
   // ── Data ───────────────────────────────────────────────────────────────────
+  // ✅ دائماً نحمل من localStorage — العرض للأدمن فقط في SettingsDashboard
   const [users, setUsers] = useState<UserRecord[]>(() =>
-    isAdminSessionActive() ? lsGet<UserRecord[]>(LS.users, []) : []
+    lsGet<UserRecord[]>(LS.users, [])
   );
   const [installations, setInstallations] = useState<InstallationRecord[]>(() =>
     safeArr(lsGet<InstallationRecord[]>(LS.installations, []))
