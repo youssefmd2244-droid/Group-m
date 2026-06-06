@@ -91,7 +91,7 @@ interface InstallationFormProps {
   workers?:     string[];
   extraFields?: InstallationFieldSchema[];
   onSubmit:     (record: Omit<InstallationRecord, 'id' | 'createdAt'>) => Promise<void> | void;
-  syncStatus?:  'idle' | 'syncing' | 'success' | 'error';
+  syncStatus?:  'idle' | 'syncing' | 'success' | 'error' | 'transient_fail';
 }
 
 // ─── PhotoSlot ────────────────────────────────────────────────────────────────
